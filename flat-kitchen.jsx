@@ -166,11 +166,7 @@ function useIdeas() {
 
   const addIdea = useCallback(async (date, { dish, tags, author }) => {
     if (!supabase) {
-      const tempId = `local-${Date.now()}`;
-      setIdeas(prev => ({
-        ...prev,
-        [date]: [...(prev[date] || []), { id: tempId, dish, author, tags, likes: [], comments: [] }],
-      }));
+      alert("Backend not configured — cannot save. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the Vercel project's Environment Variables, then redeploy.");
       return;
     }
     const tempId = `temp-${Date.now()}`;
@@ -178,25 +174,32 @@ function useIdeas() {
       ...prev,
       [date]: [...(prev[date] || []), { id: tempId, dish, author, tags, likes: [], comments: [] }],
     }));
-    const { data, error } = await supabase.from("ideas")
-      .insert({ date, dish, tags, author, likes: [], comments: [] })
-      .select().single();
-    if (error) {
-      console.error("[ideas] insert failed:", error);
-      alert(`Couldn't save idea: ${error.message}`);
+    const rollback = () => setIdeas(prev => ({
+      ...prev,
+      [date]: (prev[date] || []).filter(i => i.id !== tempId),
+    }));
+    try {
+      const { data, error } = await supabase.from("ideas")
+        .insert({ date, dish, tags, author, likes: [], comments: [] })
+        .select().single();
+      if (error) {
+        console.error("[ideas] insert failed:", error);
+        alert(`Couldn't save idea: ${error.message}`);
+        rollback();
+        return;
+      }
       setIdeas(prev => ({
         ...prev,
-        [date]: (prev[date] || []).filter(i => i.id !== tempId),
+        [date]: (prev[date] || []).map(i => i.id === tempId ? {
+          id: data.id, dish: data.dish, author: data.author,
+          tags: data.tags || [], likes: data.likes || [], comments: data.comments || [],
+        } : i),
       }));
-      return;
+    } catch (e) {
+      console.error("[ideas] insert threw:", e);
+      alert(`Couldn't save idea: ${e.message || e}`);
+      rollback();
     }
-    setIdeas(prev => ({
-      ...prev,
-      [date]: (prev[date] || []).map(i => i.id === tempId ? {
-        id: data.id, dish: data.dish, author: data.author,
-        tags: data.tags || [], likes: data.likes || [], comments: data.comments || [],
-      } : i),
-    }));
   }, []);
 
   const likeIdea = useCallback(async (date, ideaId, userName) => {
@@ -1036,6 +1039,16 @@ export default function FlatKitchen() {
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
         backgroundSize: "256px 256px",
       }} />
+
+      {!supabase && (
+        <div style={{
+          background: "#C24530", color: "#fff", padding: "10px 16px",
+          fontSize: 12, fontFamily: fonts, fontWeight: 600, textAlign: "center",
+          position: "relative", zIndex: 2,
+        }}>
+          ⚠ Backend not configured — changes won't save. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel and redeploy.
+        </div>
+      )}
 
       {/* Header */}
       <div style={{
