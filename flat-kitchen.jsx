@@ -203,44 +203,78 @@ function useIdeas() {
   }, []);
 
   const likeIdea = useCallback(async (date, ideaId, userName) => {
-    // Read fresh from state
+    let prevLikes = null;
+    let newLikes = null;
     setIdeas(prev => {
       const idea = prev[date]?.find(i => i.id === ideaId);
       if (!idea) return prev;
-      const liked = idea.likes.includes(userName);
-      const newLikes = liked ? idea.likes.filter(n => n !== userName) : [...idea.likes, userName];
-      if (supabase) supabase.from("ideas").update({ likes: newLikes }).eq("id", ideaId);
+      prevLikes = idea.likes || [];
+      const liked = prevLikes.includes(userName);
+      newLikes = liked ? prevLikes.filter(n => n !== userName) : [...prevLikes, userName];
       return {
         ...prev,
         [date]: prev[date].map(i => i.id === ideaId ? { ...i, likes: newLikes } : i),
       };
     });
+    if (!supabase || newLikes === null) return;
+    const { error } = await supabase.from("ideas").update({ likes: newLikes }).eq("id", ideaId);
+    if (error) {
+      console.error("[ideas] like update failed:", error);
+      setIdeas(prev => ({
+        ...prev,
+        [date]: (prev[date] || []).map(i => i.id === ideaId ? { ...i, likes: prevLikes } : i),
+      }));
+    }
   }, []);
 
   const commentIdea = useCallback(async (date, ideaId, author, text) => {
+    let prevComments = null;
+    let newComments = null;
     setIdeas(prev => {
       const idea = prev[date]?.find(i => i.id === ideaId);
       if (!idea) return prev;
-      const newComments = [...(idea.comments || []), { author, text }];
-      if (supabase) supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+      prevComments = idea.comments || [];
+      newComments = [...prevComments, { author, text }];
       return {
         ...prev,
         [date]: prev[date].map(i => i.id === ideaId ? { ...i, comments: newComments } : i),
       };
     });
+    if (!supabase || newComments === null) return;
+    const { error } = await supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+    if (error) {
+      console.error("[ideas] comment update failed:", error);
+      alert(`Couldn't save comment: ${error.message}`);
+      setIdeas(prev => ({
+        ...prev,
+        [date]: (prev[date] || []).map(i => i.id === ideaId ? { ...i, comments: prevComments } : i),
+      }));
+    }
   }, []);
 
   const deleteComment = useCallback(async (date, ideaId, commentIndex) => {
+    let prevComments = null;
+    let newComments = null;
     setIdeas(prev => {
       const idea = prev[date]?.find(i => i.id === ideaId);
       if (!idea) return prev;
-      const newComments = idea.comments.filter((_, idx) => idx !== commentIndex);
-      if (supabase) supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+      prevComments = idea.comments || [];
+      newComments = prevComments.filter((_, idx) => idx !== commentIndex);
       return {
         ...prev,
         [date]: prev[date].map(i => i.id === ideaId ? { ...i, comments: newComments } : i),
       };
     });
+    if (!supabase || newComments === null) return;
+    const { error } = await supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+    if (error) {
+      console.error("[ideas] comment delete failed:", error);
+      alert(`Couldn't delete comment: ${error.message}`);
+      setIdeas(prev => ({
+        ...prev,
+        [date]: (prev[date] || []).map(i => i.id === ideaId ? { ...i, comments: prevComments } : i),
+      }));
+    }
   }, []);
 
   const deleteIdea = useCallback(async (date, ideaId) => {
