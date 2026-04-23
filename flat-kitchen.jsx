@@ -37,12 +37,11 @@ const TAGS = [
 
 const ATTENDANCE = { HOME: "home", AWAY: "away", UNSURE: "unsure" };
 
-// Attendance colors
 const ATT_COLORS = {
-  home: { bg: "#D6F0D0", border: "#4CAF50", text: "#2E7D32" },
-  away: { bg: "#FCDEDE", border: "#E05555", text: "#C62828" },
-  unsure: { bg: "#FFF3CD", border: "#E0B830", text: "#9A7B00" },
-  none: { bg: "transparent", border: "#EDE6DC", text: "#B8AA9A" },
+  home: { bg: "#D9F2D0", border: "#4AAF50", text: "#256D2B" },
+  away: { bg: "#FCE0E0", border: "#D94F4F", text: "#A63030" },
+  unsure: { bg: "#FFF4CC", border: "#D4A720", text: "#8A6A00" },
+  none: { bg: "transparent", border: "#DDD3C4", text: "#B0A090" },
 };
 
 function dateKey(d) {
@@ -69,17 +68,86 @@ function useStore(key, initial) {
   return [val, setVal];
 }
 
-// ─── Shared Styles ───────────────────────────────────────────────
-const fonts = `'Outfit', 'Helvetica Neue', sans-serif`;
-const displayFont = `'Fraunces', Georgia, serif`;
+// ─── Design System ───────────────────────────────────────────────
+const fonts = `'DM Sans', 'Helvetica Neue', sans-serif`;
+const displayFont = `'Instrument Serif', Georgia, serif`;
 const C = {
-  bg: "#FAF6F1", card: "#FFFFFF", cardAlt: "#FFF9F3",
-  border: "#EDE6DC", borderLight: "#F3EDE5",
-  text: "#2C2418", textMuted: "#9A8D7F", textLight: "#B8AA9A",
-  accent: "#BF5B3F", accentLight: "#F4DDD5",
-  dark: "#2C2418", darkCard: "#362E22",
-  green: "#4E7A42", greenLight: "#D2E4CB",
+  bg: "#F4EDE4", card: "#FFFFFF", cardAlt: "#FBF7F1",
+  border: "#DDD3C4", borderLight: "#EBE4DA",
+  text: "#1C1714", textMuted: "#857668", textLight: "#AEA090",
+  accent: "#C24530", accentLight: "#FBEAE4", accentSoft: "#E8907E",
+  dark: "#1C1714", darkCard: "#2E251D",
+  green: "#3B7A48", greenLight: "#D6EDD9",
 };
+
+// ─── Injected Styles ─────────────────────────────────────────────
+const cssAnimation = `
+@keyframes fk-fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fk-scaleIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes fk-popIn {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+@keyframes fk-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.fk-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.fk-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(28,23,20,0.08);
+}
+.fk-btn {
+  transition: all 0.15s ease;
+}
+.fk-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+.fk-btn:active {
+  transform: translateY(0) scale(0.97);
+}
+.fk-input:focus {
+  border-color: ${C.accent} !important;
+  box-shadow: 0 0 0 3px ${C.accent}18;
+}
+.fk-picker-btn {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fk-picker-btn:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 12px 28px rgba(28,23,20,0.1);
+}
+.fk-picker-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+.fk-like-pop {
+  animation: fk-popIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fk-tag {
+  transition: all 0.12s ease;
+}
+.fk-tag:hover {
+  transform: scale(1.04);
+}
+.fk-att-btn {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fk-att-btn:active {
+  transform: scale(0.94);
+}
+div::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+`;
 
 // ─── Components ──────────────────────────────────────────────────
 
@@ -88,30 +156,57 @@ function FlatmatePicker({ onSelect }) {
     <div style={{
       minHeight: "100dvh", display: "flex", flexDirection: "column",
       alignItems: "center", justifyContent: "center",
-      background: `linear-gradient(180deg, ${C.bg} 0%, #EDE1D3 100%)`,
-      padding: 24, fontFamily: fonts,
+      background: `radial-gradient(ellipse at 30% 20%, #F9F0E4 0%, #EDE1D1 50%, #DDD0BC 100%)`,
+      padding: 32, fontFamily: fonts, position: "relative", overflow: "hidden",
     }}>
-      
-      <h1 style={{
-        fontFamily: displayFont, fontSize: 36, fontWeight: 800, color: C.text,
-        margin: "0 0 4px", letterSpacing: "-0.03em",
-      }}>Flat Kitchen</h1>
-      <p style={{ color: C.textMuted, fontSize: 15, margin: "0 0 44px" }}>Who's here?</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 280 }}>
-        {FLATMATES.map(fm => (
-          <button key={fm.name} onClick={() => onSelect(fm.name)} style={{
-            display: "flex", alignItems: "center", gap: 14,
-            padding: "16px 20px", borderRadius: 16, border: `1.5px solid ${C.border}`,
-            background: C.card, cursor: "pointer", fontSize: 17, fontWeight: 600,
-            fontFamily: fonts, color: C.text, transition: "all 0.15s",
-            boxShadow: "0 1px 4px rgba(44,36,24,0.04)",
+      <style>{cssAnimation}</style>
+
+      {/* Decorative background circles */}
+      <div style={{
+        position: "absolute", width: 340, height: 340, borderRadius: "50%",
+        background: `radial-gradient(circle, ${C.accent}08, transparent 70%)`,
+        top: -60, right: -80, pointerEvents: "none",
+      }} />
+      <div style={{
+        position: "absolute", width: 260, height: 260, borderRadius: "50%",
+        background: `radial-gradient(circle, ${C.green}06, transparent 70%)`,
+        bottom: -40, left: -60, pointerEvents: "none",
+      }} />
+
+      <div style={{ animation: "fk-fadeUp 0.6s ease", position: "relative" }}>
+        <div style={{
+          fontSize: 44, textAlign: "center", marginBottom: 8,
+          animation: "fk-fadeUp 0.5s ease",
+        }}>🍳</div>
+        <h1 style={{
+          fontFamily: displayFont, fontSize: 42, fontWeight: 400, color: C.text,
+          margin: "0 0 4px", letterSpacing: "-0.02em", textAlign: "center",
+          fontStyle: "italic",
+        }}>Flat Kitchen</h1>
+        <p style={{
+          color: C.textMuted, fontSize: 15, margin: "0 0 48px",
+          fontFamily: fonts, fontWeight: 500, textAlign: "center",
+          letterSpacing: "0.02em",
+        }}>Who's cooking tonight?</p>
+      </div>
+
+      <div style={{
+        display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 300,
+        animation: "fk-fadeUp 0.7s ease 0.1s both",
+      }}>
+        {FLATMATES.map((fm, i) => (
+          <button key={fm.name} className="fk-picker-btn" onClick={() => onSelect(fm.name)} style={{
+            display: "flex", alignItems: "center", gap: 16,
+            padding: "18px 22px", borderRadius: 18, border: `1.5px solid ${C.border}`,
+            background: C.card, cursor: "pointer", fontSize: 18, fontWeight: 600,
+            fontFamily: fonts, color: C.text,
+            boxShadow: "0 2px 12px rgba(28,23,20,0.06)",
+            animation: `fk-fadeUp 0.5s ease ${0.15 + i * 0.08}s both`,
           }}>
             <span style={{
-              width: 42, height: 42, borderRadius: 12, display: "flex",
-              alignItems: "center", justifyContent: "center", fontSize: 18,
-              background: C.accentLight, fontWeight: 700, color: C.accent,
-              fontFamily: displayFont,
-            }}>{fm.name[0]}</span>
+              width: 46, height: 46, borderRadius: 14, display: "flex",
+              alignItems: "center", justifyContent: "center", fontSize: 22,
+            }}>{fm.emoji}</span>
             {fm.name}
           </button>
         ))}
@@ -138,29 +233,32 @@ function DayStrip({ selectedDate, onSelect }) {
   return (
     <div ref={stripRef} style={{
       display: "flex", gap: 6, overflowX: "auto", padding: "0 16px 4px",
-      scrollbarWidth: "none", msOverflowStyle: "none",
+      scrollbarWidth: "none",
     }}>
-      <style>{`div::-webkit-scrollbar { display: none; }`}</style>
       {days.map(dk => {
         const { weekday, day } = formatDay(dk);
         const sel = dk === selectedDate;
         const today = isToday(dk);
         return (
           <button key={dk} data-active={sel ? "true" : "false"} onClick={() => onSelect(dk)} style={{
-            flexShrink: 0, width: 52, padding: "8px 0 10px", borderRadius: 14,
-            border: sel ? "none" : `1.5px solid ${today ? C.accent + "44" : C.border}`,
-            background: sel ? C.dark : "transparent",
-            cursor: "pointer", textAlign: "center", transition: "all 0.15s",
+            flexShrink: 0, width: 54, padding: "10px 0 12px", borderRadius: 16,
+            border: sel ? "none" : `1.5px solid ${today ? C.accent + "33" : C.border}`,
+            background: sel
+              ? `linear-gradient(135deg, ${C.dark} 0%, #3D3228 100%)`
+              : today ? C.accent + "08" : "transparent",
+            cursor: "pointer", textAlign: "center",
+            transition: "all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)",
+            boxShadow: sel ? "0 4px 16px rgba(28,23,20,0.15)" : "none",
           }}>
             <div style={{
               fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-              letterSpacing: "0.08em", marginBottom: 2,
-              color: sel ? C.textLight : today ? C.accent : C.textMuted,
+              letterSpacing: "0.08em", marginBottom: 3,
+              color: sel ? C.accentSoft : today ? C.accent : C.textMuted,
               fontFamily: fonts,
             }}>{weekday}</div>
             <div style={{
-              fontSize: 20, fontWeight: 700, fontFamily: displayFont,
-              color: sel ? "#fff" : C.text,
+              fontSize: 21, fontWeight: 400, fontFamily: displayFont,
+              color: sel ? "#fff" : C.text, fontStyle: "italic",
             }}>{day}</div>
           </button>
         );
@@ -182,10 +280,11 @@ function DayStrip({ selectedDate, onSelect }) {
         });
         input.showPicker ? input.showPicker() : input.focus();
       }} style={{
-        flexShrink: 0, width: 52, padding: "8px 0 10px", borderRadius: 14,
+        flexShrink: 0, width: 54, padding: "10px 0 12px", borderRadius: 16,
         border: `1.5px dashed ${C.border}`, background: "transparent",
         cursor: "pointer", textAlign: "center", fontFamily: fonts,
         color: C.textMuted, fontSize: 18,
+        transition: "all 0.15s ease",
       }}>···</button>
     </div>
   );
@@ -213,23 +312,24 @@ function AttendanceRow({ currentUser, selectedDate, attendance, setAttendance })
         const ac = ATT_COLORS[status] || ATT_COLORS.none;
         const statusLabel = status === "home" ? "Home" : status === "away" ? "Away" : status === "unsure" ? "Unsure" : (isMe ? "Tap" : "—");
         return (
-          <button key={fm.name} onClick={() => { if (isMe) toggle(fm.name); }} style={{
-            flex: 1, padding: "10px 0", borderRadius: 12,
+          <button key={fm.name} className="fk-att-btn" onClick={() => { if (isMe) toggle(fm.name); }} style={{
+            flex: 1, padding: "12px 0 10px", borderRadius: 14,
             border: status ? `2px solid ${ac.border}` : `2px dashed ${ac.border}`,
             background: ac.bg,
-            cursor: isMe ? "pointer" : "default", textAlign: "center", transition: "all 0.15s",
+            cursor: isMe ? "pointer" : "default", textAlign: "center",
             position: "relative",
           }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: ac.text, fontFamily: fonts }}>
+            <div style={{ fontSize: 16, marginBottom: 2 }}>{fm.emoji}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: ac.text, fontFamily: fonts }}>
               {fm.name}
             </div>
             <div style={{
               fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
-              color: ac.text, fontFamily: fonts, marginTop: 2,
+              color: ac.text, fontFamily: fonts, marginTop: 1, opacity: 0.8,
             }}>{statusLabel}</div>
             {isMe && <div style={{
-              position: "absolute", top: -3, right: -3, width: 8, height: 8,
-              borderRadius: "50%", background: C.accent, border: `2px solid ${C.bg}`,
+              position: "absolute", top: -4, right: -4, width: 10, height: 10,
+              borderRadius: "50%", background: C.accent, border: `2.5px solid ${C.bg}`,
             }} />}
           </button>
         );
@@ -238,24 +338,33 @@ function AttendanceRow({ currentUser, selectedDate, attendance, setAttendance })
   );
 }
 
-function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDelete }) {
+function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDelete, delay }) {
   const [showComments, setShowComments] = useState(false);
   const [newComment, setNewComment] = useState("");
-  const fm = FLATMATES.find(f => f.name === idea.author);
   const liked = idea.likes?.includes(currentUser);
   const likeCount = idea.likes?.length || 0;
+  const [justLiked, setJustLiked] = useState(false);
+
+  const handleLike = (id) => {
+    onLike(id);
+    if (!liked) {
+      setJustLiked(true);
+      setTimeout(() => setJustLiked(false), 400);
+    }
+  };
 
   return (
-    <div style={{
-      background: C.card, borderRadius: 16, padding: 16,
+    <div className="fk-card" style={{
+      background: C.card, borderRadius: 18, padding: 18,
       border: `1px solid ${C.border}`, marginBottom: 10,
-      boxShadow: "0 1px 3px rgba(44,36,24,0.03)",
+      boxShadow: "0 2px 8px rgba(28,23,20,0.04), 0 1px 2px rgba(28,23,20,0.02)",
+      animation: `fk-fadeUp 0.4s ease ${delay || 0}s both`,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ flex: 1 }}>
           <div style={{
-            fontSize: 16, fontWeight: 700, color: C.text, fontFamily: displayFont,
-            marginBottom: 4, lineHeight: 1.3,
+            fontSize: 18, fontWeight: 400, color: C.text, fontFamily: displayFont,
+            marginBottom: 5, lineHeight: 1.3, fontStyle: "italic",
           }}>{idea.dish}</div>
           <div style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts }}>
             <span style={{ color: C.text, fontWeight: 600 }}>{idea.author}</span>
@@ -266,7 +375,7 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
                 const t = TAGS.find(x => x.id === tid);
                 return t ? (
                   <span key={tid} style={{
-                    fontSize: 11, padding: "2px 8px", borderRadius: 20,
+                    fontSize: 11, padding: "3px 9px", borderRadius: 20,
                     background: C.cardAlt, border: `1px solid ${C.borderLight}`,
                     color: C.textMuted, fontFamily: fonts, whiteSpace: "nowrap",
                   }}>{t.emoji} {t.label}</span>
@@ -275,56 +384,61 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
             </div>
           )}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, marginLeft: 12 }}>
-          <button onClick={() => onLike(idea.id)} style={{
-            width: 44, height: 44, borderRadius: 12, border: "none",
-            background: liked ? C.accentLight : C.cardAlt,
-            cursor: "pointer", fontSize: 18, display: "flex",
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 14 }}>
+          <button className={justLiked ? "fk-like-pop" : ""} onClick={() => handleLike(idea.id)} style={{
+            width: 48, height: 48, borderRadius: 14, border: "none",
+            background: liked
+              ? `linear-gradient(135deg, ${C.accentLight}, #FDD8CE)`
+              : C.cardAlt,
+            cursor: "pointer", fontSize: 20, display: "flex",
             alignItems: "center", justifyContent: "center",
-            transition: "all 0.15s", transform: liked ? "scale(1.05)" : "none",
+            transition: "all 0.2s ease",
+            boxShadow: liked ? `0 2px 8px ${C.accent}22` : "none",
           }}>{liked ? "❤️" : "🤍"}</button>
-          <span style={{ fontSize: 12, fontWeight: 700, color: liked ? C.accent : C.textLight, fontFamily: fonts }}>
-            {likeCount}
-          </span>
+          <span style={{
+            fontSize: 12, fontWeight: 700,
+            color: liked ? C.accent : C.textLight, fontFamily: fonts,
+          }}>{likeCount}</span>
         </div>
       </div>
 
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 12 }}>
         <button onClick={() => setShowComments(!showComments)} style={{
           background: "none", border: "none", cursor: "pointer",
           fontSize: 12, color: C.textMuted, fontFamily: fonts, fontWeight: 600,
           padding: 0, display: "flex", alignItems: "center", gap: 4,
         }}>
           💬 {idea.comments?.length || 0} comment{(idea.comments?.length || 0) !== 1 ? "s" : ""}
-          <span style={{ fontSize: 10, transition: "transform 0.15s", display: "inline-block", transform: showComments ? "rotate(180deg)" : "none" }}>▾</span>
+          <span style={{
+            fontSize: 10, transition: "transform 0.2s ease", display: "inline-block",
+            transform: showComments ? "rotate(180deg)" : "none",
+          }}>▾</span>
         </button>
 
         {showComments && (
-          <div style={{ marginTop: 8 }}>
-            {idea.comments?.map((c, i) => {
-              const cfm = FLATMATES.find(f => f.name === c.author);
-              return (
-                <div key={i} style={{
-                  padding: "8px 0", borderTop: i > 0 ? `1px solid ${C.borderLight}` : "none",
-                  fontSize: 13, color: C.text, fontFamily: fonts, lineHeight: 1.4,
-                  display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8,
-                }}>
-                  <div>
-                    <span style={{ fontWeight: 700, color: C.text }}>{c.author}</span>{" "}
-                    {c.text}
-                  </div>
-                  {c.author === currentUser && (
-                    <button onClick={() => onDeleteComment(idea.id, i)} style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      fontSize: 11, color: C.textLight, fontFamily: fonts, padding: "2px 4px",
-                      flexShrink: 0,
-                    }}>✕</button>
-                  )}
+          <div style={{ marginTop: 10, animation: "fk-scaleIn 0.2s ease" }}>
+            {idea.comments?.map((c, i) => (
+              <div key={i} style={{
+                padding: "8px 0", borderTop: i > 0 ? `1px solid ${C.borderLight}` : "none",
+                fontSize: 13, color: C.text, fontFamily: fonts, lineHeight: 1.5,
+                display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8,
+              }}>
+                <div>
+                  <span style={{ fontWeight: 700, color: C.text }}>{c.author}</span>{" "}
+                  {c.text}
                 </div>
-              );
-            })}
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                {c.author === currentUser && (
+                  <button onClick={() => onDeleteComment(idea.id, i)} style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 11, color: C.textLight, fontFamily: fonts, padding: "2px 4px",
+                    flexShrink: 0,
+                  }}>✕</button>
+                )}
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               <input value={newComment} onChange={e => setNewComment(e.target.value)}
+                className="fk-input"
                 placeholder="Add a comment..."
                 onKeyDown={e => {
                   if (e.key === "Enter" && newComment.trim()) {
@@ -333,14 +447,15 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
                   }
                 }}
                 style={{
-                  flex: 1, padding: "8px 12px", borderRadius: 10,
-                  border: `1px solid ${C.border}`, background: C.cardAlt,
+                  flex: 1, padding: "9px 14px", borderRadius: 12,
+                  border: `1.5px solid ${C.border}`, background: C.cardAlt,
                   fontSize: 13, fontFamily: fonts, color: C.text, outline: "none",
+                  transition: "border-color 0.15s, box-shadow 0.15s",
                 }} />
-              <button onClick={() => {
+              <button className="fk-btn" onClick={() => {
                 if (newComment.trim()) { onComment(idea.id, newComment.trim()); setNewComment(""); }
               }} style={{
-                padding: "8px 14px", borderRadius: 10, border: "none",
+                padding: "9px 16px", borderRadius: 12, border: "none",
                 background: C.accent, color: "#fff", fontSize: 13,
                 fontWeight: 600, fontFamily: fonts, cursor: "pointer",
               }}>Send</button>
@@ -351,8 +466,9 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
 
       {idea.author === currentUser && (
         <button onClick={() => onDelete(idea.id)} style={{
-          marginTop: 8, background: "none", border: "none", cursor: "pointer",
+          marginTop: 10, background: "none", border: "none", cursor: "pointer",
           fontSize: 11, color: C.textLight, fontFamily: fonts, padding: 0,
+          transition: "color 0.15s",
         }}>Delete idea</button>
       )}
     </div>
@@ -367,28 +483,28 @@ function TagPicker({ selected, onChange }) {
       {shown.map(t => {
         const active = selected.includes(t.id);
         return (
-          <button key={t.id} onClick={() => {
+          <button key={t.id} className="fk-tag" onClick={() => {
             onChange(active ? selected.filter(x => x !== t.id) : [...selected, t.id]);
           }} style={{
-            padding: "5px 10px", borderRadius: 20, fontSize: 12,
+            padding: "6px 12px", borderRadius: 20, fontSize: 12,
             border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
             background: active ? C.accentLight : "transparent",
             color: active ? C.accent : C.textMuted, cursor: "pointer",
             fontFamily: fonts, fontWeight: active ? 700 : 500,
-            transition: "all 0.12s", whiteSpace: "nowrap",
+            whiteSpace: "nowrap",
           }}>{t.emoji} {t.label}</button>
         );
       })}
       {!expanded && (
-        <button onClick={() => setExpanded(true)} style={{
-          padding: "5px 12px", borderRadius: 20, fontSize: 12,
+        <button className="fk-tag" onClick={() => setExpanded(true)} style={{
+          padding: "6px 14px", borderRadius: 20, fontSize: 12,
           border: `1px dashed ${C.border}`, background: "transparent",
           color: C.textMuted, cursor: "pointer", fontFamily: fonts,
         }}>+{TAGS.length - 8} more</button>
       )}
       {expanded && (
-        <button onClick={() => setExpanded(false)} style={{
-          padding: "5px 12px", borderRadius: 20, fontSize: 12,
+        <button className="fk-tag" onClick={() => setExpanded(false)} style={{
+          padding: "6px 14px", borderRadius: 20, fontSize: 12,
           border: `1px dashed ${C.border}`, background: "transparent",
           color: C.textMuted, cursor: "pointer", fontFamily: fonts,
         }}>Show less</button>
@@ -402,33 +518,39 @@ function NewIdeaForm({ currentUser, onSubmit, onCancel }) {
   const [tags, setTags] = useState([]);
   return (
     <div style={{
-      background: C.card, borderRadius: 20, padding: 20,
+      background: C.card, borderRadius: 20, padding: 22,
       border: `1px solid ${C.border}`, marginBottom: 12,
+      boxShadow: "0 4px 20px rgba(28,23,20,0.06)",
+      animation: "fk-scaleIn 0.25s ease",
     }}>
       <div style={{
-        fontSize: 17, fontWeight: 700, color: C.text, fontFamily: displayFont, marginBottom: 14,
+        fontSize: 20, fontWeight: 400, color: C.text, fontFamily: displayFont,
+        marginBottom: 16, fontStyle: "italic",
       }}>Suggest a dish</div>
       <input value={dish} onChange={e => setDish(e.target.value)} placeholder="e.g. Thai Green Curry"
-        autoFocus
+        autoFocus className="fk-input"
         style={{
-          width: "100%", padding: "12px 14px", borderRadius: 12,
+          width: "100%", padding: "13px 16px", borderRadius: 14,
           border: `1.5px solid ${C.border}`, background: C.cardAlt,
           fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
-          boxSizing: "border-box", marginBottom: 12,
+          boxSizing: "border-box", marginBottom: 14,
+          transition: "border-color 0.15s, box-shadow 0.15s",
         }} />
       <div style={{
-        fontSize: 12, fontWeight: 700, color: C.textMuted, fontFamily: fonts,
-        textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8,
+        fontSize: 11, fontWeight: 700, color: C.textMuted, fontFamily: fonts,
+        textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8,
       }}>Tags</div>
       <TagPicker selected={tags} onChange={setTags} />
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button onClick={() => { if (dish.trim()) onSubmit({ dish: dish.trim(), tags }); }} style={{
-          flex: 1, padding: "12px", borderRadius: 12, border: "none",
-          background: C.accent, color: "#fff", fontSize: 15, fontWeight: 600,
-          fontFamily: fonts, cursor: "pointer", opacity: dish.trim() ? 1 : 0.4,
+      <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+        <button className="fk-btn" onClick={() => { if (dish.trim()) onSubmit({ dish: dish.trim(), tags }); }} style={{
+          flex: 1, padding: "13px", borderRadius: 14, border: "none",
+          background: dish.trim() ? `linear-gradient(135deg, ${C.accent}, #D4593F)` : C.border,
+          color: "#fff", fontSize: 15, fontWeight: 600,
+          fontFamily: fonts, cursor: dish.trim() ? "pointer" : "default",
+          boxShadow: dish.trim() ? `0 4px 16px ${C.accent}33` : "none",
         }}>Add Idea</button>
-        <button onClick={onCancel} style={{
-          padding: "12px 18px", borderRadius: 12, border: `1px solid ${C.border}`,
+        <button className="fk-btn" onClick={onCancel} style={{
+          padding: "13px 20px", borderRadius: 14, border: `1.5px solid ${C.border}`,
           background: "transparent", color: C.textMuted, fontSize: 15,
           fontFamily: fonts, cursor: "pointer",
         }}>✕</button>
@@ -439,10 +561,10 @@ function NewIdeaForm({ currentUser, onSubmit, onCancel }) {
 
 function Slider({ value, onChange, label, color, icon }) {
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: C.text, fontFamily: fonts }}>{icon} {label}</span>
-        <span style={{ fontSize: 20, fontWeight: 800, color, fontFamily: displayFont }}>{value}</span>
+        <span style={{ fontSize: 22, fontWeight: 400, color, fontFamily: displayFont, fontStyle: "italic" }}>{value}</span>
       </div>
       <input type="range" min={1} max={10} value={value} onChange={e => onChange(+e.target.value)}
         style={{
@@ -467,72 +589,81 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
 
   return (
     <div style={{
-      background: C.card, borderRadius: 20, padding: 20,
+      background: C.card, borderRadius: 22, padding: 22,
       border: `1px solid ${C.border}`,
+      boxShadow: "0 4px 20px rgba(28,23,20,0.06)",
+      animation: "fk-scaleIn 0.25s ease",
     }}>
       <div style={{
-        fontSize: 20, fontWeight: 800, color: C.text, fontFamily: displayFont, marginBottom: 18,
+        fontSize: 24, fontWeight: 400, color: C.text, fontFamily: displayFont,
+        marginBottom: 20, fontStyle: "italic",
       }}>{initial ? "Edit Meal" : "Log a Meal"}</div>
 
       <input value={dish} onChange={e => setDish(e.target.value)} placeholder="What did you cook?"
+        className="fk-input"
         style={{
-          width: "100%", padding: "12px 14px", borderRadius: 12, marginBottom: 12,
+          width: "100%", padding: "13px 16px", borderRadius: 14, marginBottom: 14,
           border: `1.5px solid ${C.border}`, background: C.cardAlt,
           fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
-          boxSizing: "border-box",
+          boxSizing: "border-box", transition: "border-color 0.15s, box-shadow 0.15s",
         }} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         <div>
           <label style={labelSt}>Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={fieldSt} />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            className="fk-input" style={fieldSt} />
         </div>
         <div>
           <label style={labelSt}>Cook</label>
-          <select value={cook} onChange={e => setCook(e.target.value)} style={fieldSt}>
+          <select value={cook} onChange={e => setCook(e.target.value)}
+            className="fk-input" style={fieldSt}>
             {FLATMATES.map(fm => <option key={fm.name} value={fm.name}>{fm.name}</option>)}
           </select>
         </div>
       </div>
 
       <div style={{
-        fontSize: 12, fontWeight: 700, color: C.textMuted, fontFamily: fonts,
-        textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8,
+        fontSize: 11, fontWeight: 700, color: C.textMuted, fontFamily: fonts,
+        textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8,
       }}>Tags</div>
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 16 }}>
         <TagPicker selected={tags} onChange={setTags} />
       </div>
 
       <Slider value={tastiness} onChange={setTastiness} label="Tastiness" color={C.accent} icon="😋" />
       <Slider value={effort} onChange={setEffort} label="Effort" color={C.green} icon="💪" />
 
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 14 }}>
         <label style={labelSt}>Cost (€)</label>
         <input type="number" step="0.5" min="0" value={cost} onChange={e => setCost(e.target.value)}
-          placeholder="0.00" style={fieldSt} />
+          placeholder="0.00" className="fk-input" style={fieldSt} />
       </div>
 
-      <div style={{ marginBottom: 18 }}>
+      <div style={{ marginBottom: 20 }}>
         <label style={labelSt}>Notes</label>
         <textarea value={comment} onChange={e => setComment(e.target.value)}
           placeholder="Recipe link, tweaks..."
+          className="fk-input"
           rows={2} style={{ ...fieldSt, resize: "vertical" }} />
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => {
+        <button className="fk-btn" onClick={() => {
           if (!dish.trim()) return;
           onSubmit({
             id: initial?.id || Date.now(), dish: dish.trim(), date, cook,
             tastiness, effort, cost: parseFloat(cost) || 0, comment: comment.trim(), tags,
           });
         }} style={{
-          flex: 1, padding: "13px", borderRadius: 12, border: "none",
-          background: C.accent, color: "#fff", fontSize: 15, fontWeight: 600,
+          flex: 1, padding: "14px", borderRadius: 14, border: "none",
+          background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+          color: "#fff", fontSize: 15, fontWeight: 600,
           fontFamily: fonts, cursor: "pointer",
+          boxShadow: `0 4px 16px ${C.accent}33`,
         }}>{initial ? "Update" : "Save"}</button>
-        <button onClick={onCancel} style={{
-          padding: "13px 18px", borderRadius: 12, border: `1px solid ${C.border}`,
+        <button className="fk-btn" onClick={onCancel} style={{
+          padding: "14px 20px", borderRadius: 14, border: `1.5px solid ${C.border}`,
           background: "transparent", color: C.textMuted, fontSize: 15,
           fontFamily: fonts, cursor: "pointer",
         }}>Cancel</button>
@@ -541,31 +672,32 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
   );
 }
 
-function MealCard({ meal, onEdit, onDelete }) {
-  const fm = FLATMATES.find(f => f.name === meal.cook);
+function MealCard({ meal, onEdit, onDelete, delay }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{
-      background: C.card, borderRadius: 16, padding: 14,
+    <div className="fk-card" style={{
+      background: C.card, borderRadius: 18, padding: 16,
       border: `1px solid ${C.border}`, marginBottom: 10,
-      boxShadow: "0 1px 3px rgba(44,36,24,0.03)",
+      boxShadow: "0 2px 8px rgba(28,23,20,0.04), 0 1px 2px rgba(28,23,20,0.02)",
+      animation: `fk-fadeUp 0.4s ease ${delay || 0}s both`,
     }}>
       <div onClick={() => setOpen(!open)} style={{ cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: displayFont, lineHeight: 1.3 }}>
-            {meal.dish}
-          </div>
-          <div style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts, marginTop: 2 }}>
+          <div style={{
+            fontSize: 17, fontWeight: 400, color: C.text, fontFamily: displayFont,
+            lineHeight: 1.3, fontStyle: "italic",
+          }}>{meal.dish}</div>
+          <div style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts, marginTop: 3 }}>
             <span style={{ color: C.text, fontWeight: 600 }}>{meal.cook}</span>
             {" · "}{meal.date}{meal.cost > 0 && ` · €${meal.cost.toFixed(2)}`}
           </div>
           {meal.tags?.length > 0 && (
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>
               {meal.tags.slice(0, 4).map(tid => {
                 const t = TAGS.find(x => x.id === tid);
                 return t ? (
                   <span key={tid} style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 10,
+                    fontSize: 10, padding: "2px 7px", borderRadius: 10,
                     background: C.cardAlt, color: C.textMuted, fontFamily: fonts,
                   }}>{t.emoji} {t.label}</span>
                 ) : null;
@@ -576,26 +708,31 @@ function MealCard({ meal, onEdit, onDelete }) {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: 10 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginLeft: 12 }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: C.accent, fontFamily: displayFont }}>{meal.tastiness}</div>
-            <div style={{ fontSize: 8, color: C.textLight, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: fonts }}>taste</div>
+            <div style={{ fontSize: 20, fontWeight: 400, color: C.accent, fontFamily: displayFont, fontStyle: "italic" }}>{meal.tastiness}</div>
+            <div style={{ fontSize: 8, color: C.textLight, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: fonts, fontWeight: 700 }}>taste</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: displayFont }}>{meal.effort}</div>
-            <div style={{ fontSize: 8, color: C.textLight, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: fonts }}>effort</div>
+            <div style={{ fontSize: 20, fontWeight: 400, color: C.green, fontFamily: displayFont, fontStyle: "italic" }}>{meal.effort}</div>
+            <div style={{ fontSize: 8, color: C.textLight, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: fonts, fontWeight: 700 }}>effort</div>
           </div>
         </div>
       </div>
       {open && (
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
+        <div style={{
+          marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}`,
+          animation: "fk-scaleIn 0.2s ease",
+        }}>
           {meal.comment && <p style={{
-            margin: "0 0 10px", fontSize: 13, color: C.textMuted, fontFamily: fonts,
-            fontStyle: "italic", lineHeight: 1.5,
+            margin: "0 0 12px", fontSize: 13, color: C.textMuted, fontFamily: fonts,
+            fontStyle: "italic", lineHeight: 1.6,
+            padding: "10px 14px", background: C.cardAlt, borderRadius: 12,
+            borderLeft: `3px solid ${C.accent}30`,
           }}>"{meal.comment}"</p>}
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => onEdit(meal)} style={smallBtn}>Edit</button>
-            <button onClick={() => onDelete(meal.id)} style={{ ...smallBtn, color: C.accent, borderColor: C.accent }}>Delete</button>
+            <button className="fk-btn" onClick={() => onEdit(meal)} style={smallBtn}>Edit</button>
+            <button className="fk-btn" onClick={() => onDelete(meal.id)} style={{ ...smallBtn, color: C.accent, borderColor: C.accent }}>Delete</button>
           </div>
         </div>
       )}
@@ -613,36 +750,50 @@ function Stats({ meals }) {
 
   return (
     <div style={{
-      background: C.dark, borderRadius: 20, padding: 20, color: "#fff", marginBottom: 16,
+      background: `linear-gradient(145deg, ${C.dark} 0%, #342B20 60%, #3D3025 100%)`,
+      borderRadius: 22, padding: 22, color: "#fff", marginBottom: 16,
+      boxShadow: "0 6px 24px rgba(28,23,20,0.2)",
+      animation: "fk-fadeUp 0.5s ease",
+      position: "relative", overflow: "hidden",
     }}>
+      {/* Decorative gradient blob */}
       <div style={{
-        fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
-        color: C.textLight, fontFamily: fonts, marginBottom: 12,
+        position: "absolute", width: 180, height: 180, borderRadius: "50%",
+        background: `radial-gradient(circle, ${C.accent}18, transparent 70%)`,
+        top: -40, right: -30, pointerEvents: "none",
+      }} />
+
+      <div style={{
+        fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em",
+        color: C.textLight, fontFamily: fonts, marginBottom: 14,
       }}>Kitchen Stats</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 16 }}>
         {[
           { l: "Meals", v: meals.length, i: "🍽" },
           { l: "Avg Taste", v: avg(meals, m => m.tastiness), i: "😋" },
           { l: "Total €", v: `€${meals.reduce((s, m) => s + m.cost, 0).toFixed(0)}`, i: "💰" },
           { l: "Avg Effort", v: avg(meals, m => m.effort), i: "💪" },
         ].map(s => (
-          <div key={s.l}>
+          <div key={s.l} style={{ position: "relative" }}>
             <div style={{ fontSize: 9, color: C.textLight, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: fonts }}>{s.i} {s.l}</div>
-            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: displayFont }}>{s.v}</div>
+            <div style={{ fontSize: 28, fontWeight: 400, fontFamily: displayFont, fontStyle: "italic" }}>{s.v}</div>
           </div>
         ))}
       </div>
       <div style={{
-        background: C.darkCard, borderRadius: 12, padding: 10,
+        background: C.darkCard, borderRadius: 14, padding: 12,
         fontSize: 12, fontFamily: fonts, color: C.textLight,
+        border: `1px solid #ffffff08`,
       }}>⭐ Best: <strong style={{ color: "#fff" }}>{topDish.dish}</strong> ({topDish.tastiness}/10) by {topDish.cook}</div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         {FLATMATES.map(fm => (
           <div key={fm.name} style={{
-            flex: 1, background: C.darkCard, borderRadius: 10, padding: 8, textAlign: "center",
+            flex: 1, background: C.darkCard, borderRadius: 12, padding: 10, textAlign: "center",
+            border: `1px solid #ffffff08`,
           }}>
+            <div style={{ fontSize: 16, marginBottom: 2 }}>{fm.emoji}</div>
             <div style={{ fontSize: 10, color: C.accentLight, fontFamily: fonts }}>{fm.name}</div>
-            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: displayFont, color: C.accentLight }}>{cookCounts[fm.name]}</div>
+            <div style={{ fontSize: 20, fontWeight: 400, fontFamily: displayFont, color: C.accentLight, fontStyle: "italic" }}>{cookCounts[fm.name]}</div>
           </div>
         ))}
       </div>
@@ -653,16 +804,17 @@ function Stats({ meals }) {
 // ─── Tiny styles ─────────────────────────────────────────────────
 const labelSt = {
   display: "block", fontSize: 11, fontWeight: 700, color: C.textMuted,
-  marginBottom: 4, fontFamily: fonts, textTransform: "uppercase", letterSpacing: "0.05em",
+  marginBottom: 5, fontFamily: fonts, textTransform: "uppercase", letterSpacing: "0.06em",
 };
 const fieldSt = {
-  width: "100%", padding: "10px 12px", borderRadius: 10,
+  width: "100%", padding: "11px 14px", borderRadius: 12,
   border: `1.5px solid ${C.border}`, background: C.cardAlt,
   fontSize: 14, fontFamily: fonts, color: C.text, outline: "none", boxSizing: "border-box",
+  transition: "border-color 0.15s, box-shadow 0.15s",
 };
 const smallBtn = {
-  padding: "5px 12px", borderRadius: 8, background: "transparent",
-  border: `1px solid ${C.green}`, fontSize: 12, fontWeight: 600,
+  padding: "6px 14px", borderRadius: 10, background: "transparent",
+  border: `1.5px solid ${C.green}`, fontSize: 12, fontWeight: 600,
   color: C.green, cursor: "pointer", fontFamily: fonts,
 };
 
@@ -680,7 +832,6 @@ export default function FlatKitchen() {
   const [filterTag, setFilterTag] = useState(null);
 
   if (!currentUser) return <FlatmatePicker onSelect={setCurrentUser} />;
-  const fm = FLATMATES.find(f => f.name === currentUser);
 
   const dayIdeas = ideas[selectedDate] || [];
   const setDayIdeas = (fn) => setIdeas(prev => ({
@@ -735,174 +886,221 @@ export default function FlatKitchen() {
 
   return (
     <div style={{
-      minHeight: "100dvh", background: C.bg, fontFamily: fonts,
-      maxWidth: 480, margin: "0 auto",
+      minHeight: "100dvh",
+      background: `linear-gradient(180deg, ${C.bg} 0%, #EDE4D8 100%)`,
+      fontFamily: fonts, maxWidth: 480, margin: "0 auto",
+      position: "relative",
     }}>
-      <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <style>{cssAnimation}</style>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+
+      {/* Noise texture overlay */}
+      <div style={{
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        opacity: 0.025, pointerEvents: "none", zIndex: 0,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+        backgroundSize: "256px 256px",
+      }} />
 
       {/* Header */}
       <div style={{
-        padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center",
+        position: "relative", zIndex: 1,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          
-          <span style={{ fontSize: 20, fontWeight: 800, color: C.text, fontFamily: displayFont, letterSpacing: "-0.02em" }}>
-            Flat Kitchen
-          </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>🍳</span>
+          <span style={{
+            fontSize: 22, fontWeight: 400, color: C.text, fontFamily: displayFont,
+            letterSpacing: "-0.01em", fontStyle: "italic",
+          }}>Flat Kitchen</span>
         </div>
-        <button onClick={() => setCurrentUser(null)} style={{
-          background: C.accentLight, border: "none", borderRadius: 20,
-          padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700,
-          color: C.accent, fontFamily: fonts,
+        <button className="fk-btn" onClick={() => setCurrentUser(null)} style={{
+          background: C.accentLight, border: `1.5px solid ${C.accent}20`,
+          borderRadius: 24, padding: "6px 16px", cursor: "pointer",
+          fontSize: 13, fontWeight: 600, color: C.accent, fontFamily: fonts,
         }}>{currentUser}</button>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", padding: "0 16px 8px", gap: 0 }}>
-        {[
-          { id: "today", label: "Today", icon: "📅" },
-          { id: "cookbook", label: "Cookbook", icon: "📖" },
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            flex: 1, padding: "9px 0", border: "none",
-            borderBottom: tab === t.id ? `2.5px solid ${C.accent}` : `2.5px solid transparent`,
-            background: "transparent", cursor: "pointer",
-            fontSize: 14, fontWeight: tab === t.id ? 700 : 500,
-            color: tab === t.id ? C.text : C.textMuted, fontFamily: fonts,
-          }}>{t.icon} {t.label}</button>
-        ))}
+      {/* Tabs — pill style */}
+      <div style={{
+        display: "flex", padding: "0 20px 12px", gap: 4,
+        position: "relative", zIndex: 1,
+      }}>
+        <div style={{
+          display: "flex", width: "100%",
+          background: C.card, borderRadius: 14, padding: 4,
+          border: `1px solid ${C.border}`,
+          boxShadow: "0 1px 4px rgba(28,23,20,0.03)",
+        }}>
+          {[
+            { id: "today", label: "Today", icon: "📅" },
+            { id: "cookbook", label: "Cookbook", icon: "📖" },
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              flex: 1, padding: "10px 0", border: "none",
+              borderRadius: 11,
+              background: tab === t.id
+                ? `linear-gradient(135deg, ${C.dark}, #3D3228)`
+                : "transparent",
+              cursor: "pointer",
+              fontSize: 13, fontWeight: 600,
+              color: tab === t.id ? "#fff" : C.textMuted,
+              fontFamily: fonts,
+              transition: "all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              boxShadow: tab === t.id ? "0 2px 8px rgba(28,23,20,0.12)" : "none",
+            }}>{t.icon} {t.label}</button>
+          ))}
+        </div>
       </div>
 
-      {/* ─── TODAY TAB ─── */}
-      {tab === "today" && (
-        <div>
-          <DayStrip selectedDate={selectedDate} onSelect={setSelectedDate} />
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {/* ─── TODAY TAB ─── */}
+        {tab === "today" && (
+          <div>
+            <DayStrip selectedDate={selectedDate} onSelect={setSelectedDate} />
 
-          <div style={{ padding: "16px 16px 6px", textAlign: "center" }}>
-            <div style={{
-              fontSize: 28, fontWeight: 800, color: C.text, fontFamily: displayFont, lineHeight: 1.1,
-            }}>{today ? "Today" : `${weekday}, ${month} ${day}`}</div>
-          </div>
-
-          <div style={{ padding: "12px 0 16px" }}>
-            <div style={{
-              padding: "0 16px 8px", fontSize: 10, fontWeight: 700,
-              textTransform: "uppercase", letterSpacing: "0.1em",
-              color: C.textMuted, fontFamily: fonts,
-            }}>Who's home for dinner?</div>
-            <AttendanceRow currentUser={currentUser} selectedDate={selectedDate}
-              attendance={attendance} setAttendance={setAttendance} />
-          </div>
-
-          <div style={{ padding: "0 16px 24px" }}>
-            <div style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10,
-            }}>
+            <div style={{ padding: "18px 20px 8px", textAlign: "center" }}>
               <div style={{
-                fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-                letterSpacing: "0.1em", color: C.textMuted, fontFamily: fonts,
-              }}>Dinner ideas ({dayIdeas.length})</div>
-              {!showIdeaForm && (
-                <button onClick={() => setShowIdeaForm(true)} style={{
-                  padding: "5px 12px", borderRadius: 10, border: "none",
-                  background: C.accent, color: "#fff", fontSize: 12,
-                  fontWeight: 700, fontFamily: fonts, cursor: "pointer",
-                }}>+ Idea</button>
-              )}
+                fontSize: 32, fontWeight: 400, color: C.text, fontFamily: displayFont,
+                lineHeight: 1.1, fontStyle: "italic",
+              }}>{today ? "Today" : `${weekday}, ${month} ${day}`}</div>
             </div>
 
-            {showIdeaForm && (
-              <NewIdeaForm currentUser={currentUser} onSubmit={addIdea} onCancel={() => setShowIdeaForm(false)} />
-            )}
-
-            {dayIdeas.length === 0 && !showIdeaForm && (
+            <div style={{ padding: "14px 0 18px" }}>
               <div style={{
-                textAlign: "center", padding: "30px 20px", color: C.textLight,
-                border: `1.5px dashed ${C.border}`, borderRadius: 16,
+                padding: "0 20px 10px", fontSize: 10, fontWeight: 700,
+                textTransform: "uppercase", letterSpacing: "0.12em",
+                color: C.textMuted, fontFamily: fonts,
+              }}>Who's home for dinner?</div>
+              <AttendanceRow currentUser={currentUser} selectedDate={selectedDate}
+                attendance={attendance} setAttendance={setAttendance} />
+            </div>
+
+            <div style={{ padding: "0 16px 28px" }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12,
               }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>💡</div>
-                <div style={{ fontSize: 14, fontFamily: displayFont, fontWeight: 700, color: C.textMuted }}>No ideas yet</div>
-                <div style={{ fontSize: 12, marginTop: 2 }}>Suggest what to cook tonight!</div>
+                <div style={{
+                  fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                  letterSpacing: "0.12em", color: C.textMuted, fontFamily: fonts,
+                }}>Dinner ideas ({dayIdeas.length})</div>
+                {!showIdeaForm && (
+                  <button className="fk-btn" onClick={() => setShowIdeaForm(true)} style={{
+                    padding: "6px 14px", borderRadius: 12, border: "none",
+                    background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+                    color: "#fff", fontSize: 12,
+                    fontWeight: 700, fontFamily: fonts, cursor: "pointer",
+                    boxShadow: `0 2px 10px ${C.accent}30`,
+                  }}>+ Idea</button>
+                )}
               </div>
-            )}
 
-            {[...dayIdeas].sort((a, b) => (b.likes?.length || 0) - (a.likes?.length || 0)).map(idea => (
-              <IdeaCard key={idea.id} idea={idea} currentUser={currentUser}
-                onLike={likeIdea} onComment={commentIdea} onDeleteComment={deleteComment} onDelete={deleteIdea} />
-            ))}
-          </div>
-        </div>
-      )}
+              {showIdeaForm && (
+                <NewIdeaForm currentUser={currentUser} onSubmit={addIdea} onCancel={() => setShowIdeaForm(false)} />
+              )}
 
-      {/* ─── COOKBOOK TAB ─── */}
-      {tab === "cookbook" && (
-        <div style={{ padding: "12px 16px 24px" }}>
-          <Stats meals={meals} />
-
-          {showMealForm ? (
-            <MealForm currentUser={currentUser} onSubmit={submitMeal}
-              onCancel={() => { setShowMealForm(false); setEditMeal(null); }} initial={editMeal} />
-          ) : (
-            <>
-              <button onClick={() => setShowMealForm(true)} style={{
-                width: "100%", padding: "13px", borderRadius: 14, border: "none",
-                background: C.accent, color: "#fff", fontSize: 15, fontWeight: 700,
-                fontFamily: fonts, cursor: "pointer", marginBottom: 14,
-                boxShadow: `0 4px 14px ${C.accent}33`,
-              }}>+ Log a Meal</button>
-
-              {meals.length > 0 && (
-                <div style={{ marginBottom: 14 }}>
+              {dayIdeas.length === 0 && !showIdeaForm && (
+                <div style={{
+                  textAlign: "center", padding: "36px 24px", color: C.textLight,
+                  border: `1.5px dashed ${C.border}`, borderRadius: 20,
+                  background: `${C.card}80`,
+                  animation: "fk-fadeUp 0.5s ease",
+                }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>💡</div>
                   <div style={{
-                    display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4,
-                    scrollbarWidth: "none",
-                  }}>
-                    <button onClick={() => setFilterTag(null)} style={{
-                      padding: "4px 10px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
-                      border: !filterTag ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
-                      background: !filterTag ? C.accentLight : "transparent",
-                      color: !filterTag ? C.accent : C.textMuted,
-                      cursor: "pointer", fontFamily: fonts, fontWeight: !filterTag ? 700 : 500,
-                    }}>All</button>
-                    {[...new Set(meals.flatMap(m => m.tags || []))].map(tid => {
-                      const t = TAGS.find(x => x.id === tid);
-                      if (!t) return null;
-                      const active = filterTag === tid;
-                      return (
-                        <button key={tid} onClick={() => setFilterTag(active ? null : tid)} style={{
-                          padding: "4px 10px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
-                          border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
-                          background: active ? C.accentLight : "transparent",
-                          color: active ? C.accent : C.textMuted,
-                          cursor: "pointer", fontFamily: fonts, fontWeight: active ? 700 : 500,
-                        }}>{t.emoji} {t.label}</button>
-                      );
-                    })}
-                  </div>
+                    fontSize: 16, fontFamily: displayFont, fontWeight: 400,
+                    color: C.textMuted, fontStyle: "italic",
+                  }}>No ideas yet</div>
+                  <div style={{ fontSize: 13, marginTop: 4, color: C.textLight }}>Suggest what to cook tonight!</div>
                 </div>
               )}
 
-              {sortedMeals.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "36px 20px", color: C.textLight }}>
-                  <div style={{ fontSize: 36, marginBottom: 8 }}>🍳</div>
-                  <div style={{ fontSize: 17, fontFamily: displayFont, fontWeight: 700, color: C.textMuted }}>
-                    {filterTag ? "No meals with this tag" : "No meals yet"}
+              {[...dayIdeas].sort((a, b) => (b.likes?.length || 0) - (a.likes?.length || 0)).map((idea, i) => (
+                <IdeaCard key={idea.id} idea={idea} currentUser={currentUser}
+                  onLike={likeIdea} onComment={commentIdea} onDeleteComment={deleteComment}
+                  onDelete={deleteIdea} delay={i * 0.06} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── COOKBOOK TAB ─── */}
+        {tab === "cookbook" && (
+          <div style={{ padding: "12px 16px 28px" }}>
+            <Stats meals={meals} />
+
+            {showMealForm ? (
+              <MealForm currentUser={currentUser} onSubmit={submitMeal}
+                onCancel={() => { setShowMealForm(false); setEditMeal(null); }} initial={editMeal} />
+            ) : (
+              <>
+                <button className="fk-btn" onClick={() => setShowMealForm(true)} style={{
+                  width: "100%", padding: "14px", borderRadius: 16, border: "none",
+                  background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+                  color: "#fff", fontSize: 15, fontWeight: 700,
+                  fontFamily: fonts, cursor: "pointer", marginBottom: 16,
+                  boxShadow: `0 6px 20px ${C.accent}30`,
+                }}>+ Log a Meal</button>
+
+                {meals.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{
+                      display: "flex", gap: 5, overflowX: "auto", paddingBottom: 4,
+                      scrollbarWidth: "none",
+                    }}>
+                      <button className="fk-tag" onClick={() => setFilterTag(null)} style={{
+                        padding: "5px 12px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
+                        border: !filterTag ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
+                        background: !filterTag ? C.accentLight : "transparent",
+                        color: !filterTag ? C.accent : C.textMuted,
+                        cursor: "pointer", fontFamily: fonts, fontWeight: !filterTag ? 700 : 500,
+                      }}>All</button>
+                      {[...new Set(meals.flatMap(m => m.tags || []))].map(tid => {
+                        const t = TAGS.find(x => x.id === tid);
+                        if (!t) return null;
+                        const active = filterTag === tid;
+                        return (
+                          <button key={tid} className="fk-tag" onClick={() => setFilterTag(active ? null : tid)} style={{
+                            padding: "5px 12px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
+                            border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
+                            background: active ? C.accentLight : "transparent",
+                            color: active ? C.accent : C.textMuted,
+                            cursor: "pointer", fontFamily: fonts, fontWeight: active ? 700 : 500,
+                          }}>{t.emoji} {t.label}</button>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 13, marginTop: 4 }}>
-                    {filterTag ? "Try a different filter" : "Cook something and log it!"}
+                )}
+
+                {sortedMeals.length === 0 ? (
+                  <div style={{
+                    textAlign: "center", padding: "40px 24px", color: C.textLight,
+                    animation: "fk-fadeUp 0.5s ease",
+                  }}>
+                    <div style={{ fontSize: 40, marginBottom: 10 }}>🍳</div>
+                    <div style={{
+                      fontSize: 18, fontFamily: displayFont, fontWeight: 400,
+                      color: C.textMuted, fontStyle: "italic",
+                    }}>
+                      {filterTag ? "No meals with this tag" : "No meals yet"}
+                    </div>
+                    <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>
+                      {filterTag ? "Try a different filter" : "Cook something and log it!"}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                sortedMeals.map(m => (
-                  <MealCard key={m.id} meal={m}
-                    onEdit={m => { setEditMeal(m); setShowMealForm(true); }}
-                    onDelete={id => setMeals(prev => prev.filter(x => x.id !== id))} />
-                ))
-              )}
-            </>
-          )}
-        </div>
-      )}
+                ) : (
+                  sortedMeals.map((m, i) => (
+                    <MealCard key={m.id} meal={m} delay={i * 0.05}
+                      onEdit={m => { setEditMeal(m); setShowMealForm(true); }}
+                      onDelete={id => setMeals(prev => prev.filter(x => x.id !== id))} />
+                  ))
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
