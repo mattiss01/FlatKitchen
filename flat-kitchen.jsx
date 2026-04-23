@@ -150,7 +150,8 @@ function useIdeas() {
 
   const fetchAll = useCallback(async () => {
     if (!supabase) return;
-    const { data } = await supabase.from("ideas").select("*").order("created_at", { ascending: true });
+    const { data, error } = await supabase.from("ideas").select("*").order("created_at", { ascending: true });
+    if (error) { console.error("[ideas] fetch failed:", error); return; }
     setIdeas(groupIdeas(data));
   }, []);
 
@@ -164,19 +165,38 @@ function useIdeas() {
   }, [fetchAll]);
 
   const addIdea = useCallback(async (date, { dish, tags, author }) => {
-    if (!supabase) return;
-    const { data } = await supabase.from("ideas")
-      .insert({ date, dish, tags, author, likes: [], comments: [] })
-      .select().single();
-    if (data) {
+    if (!supabase) {
+      const tempId = `local-${Date.now()}`;
       setIdeas(prev => ({
         ...prev,
-        [date]: [...(prev[date] || []), {
-          id: data.id, dish: data.dish, author: data.author,
-          tags: data.tags || [], likes: data.likes || [], comments: data.comments || [],
-        }],
+        [date]: [...(prev[date] || []), { id: tempId, dish, author, tags, likes: [], comments: [] }],
       }));
+      return;
     }
+    const tempId = `temp-${Date.now()}`;
+    setIdeas(prev => ({
+      ...prev,
+      [date]: [...(prev[date] || []), { id: tempId, dish, author, tags, likes: [], comments: [] }],
+    }));
+    const { data, error } = await supabase.from("ideas")
+      .insert({ date, dish, tags, author, likes: [], comments: [] })
+      .select().single();
+    if (error) {
+      console.error("[ideas] insert failed:", error);
+      alert(`Couldn't save idea: ${error.message}`);
+      setIdeas(prev => ({
+        ...prev,
+        [date]: (prev[date] || []).filter(i => i.id !== tempId),
+      }));
+      return;
+    }
+    setIdeas(prev => ({
+      ...prev,
+      [date]: (prev[date] || []).map(i => i.id === tempId ? {
+        id: data.id, dish: data.dish, author: data.author,
+        tags: data.tags || [], likes: data.likes || [], comments: data.comments || [],
+      } : i),
+    }));
   }, []);
 
   const likeIdea = useCallback(async (date, ideaId, userName) => {
