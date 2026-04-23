@@ -1,4 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ─── Supabase ────────────────────────────────────────────────────
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 // ─── Data ────────────────────────────────────────────────────────
 const FLATMATES = [
@@ -44,6 +51,7 @@ const ATT_COLORS = {
   none: { bg: "transparent", border: "#DDD3C4", text: "#B0A090" },
 };
 
+// ─── Utilities ───────────────────────────────────────────────────
 function dateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -59,13 +67,203 @@ function formatDay(dk) {
 }
 function isToday(dk) { return dk === dateKey(new Date()); }
 
-function useStore(key, initial) {
+// localStorage for per-device user selection only
+function useLocalStore(key, initial) {
   const [val, setVal] = useState(() => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; }
     catch { return initial; }
   });
   useEffect(() => { localStorage.setItem(key, JSON.stringify(val)); }, [key, val]);
   return [val, setVal];
+}
+
+// ─── Supabase Hooks ──────────────────────────────────────────────
+
+function groupAttendance(rows) {
+  const grouped = {};
+  (rows || []).forEach(r => {
+    if (!grouped[r.date]) grouped[r.date] = {};
+    grouped[r.date][r.name] = r.status;
+  });
+  return grouped;
+}
+
+function groupIdeas(rows) {
+  const grouped = {};
+  (rows || []).forEach(r => {
+    if (!grouped[r.date]) grouped[r.date] = [];
+    grouped[r.date].push({
+      id: r.id, dish: r.dish, author: r.author,
+      tags: r.tags || [], likes: r.likes || [], comments: r.comments || [],
+    });
+  });
+  return grouped;
+}
+
+function useAttendance() {
+  const [attendance, setAttendance] = useState({});
+
+  const fetchAll = useCallback(async () => {
+    const { data } = await supabase.from("attendance").select("*");
+    setAttendance(groupAttendance(data));
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+    const channel = supabase.channel("attendance-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, fetchAll)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchAll]);
+
+  const toggleAttendance = useCallback(async (date, name) => {
+    const current = attendance[date]?.[name];
+    let newStatus;
+    if (!current) newStatus = "home";
+    else if (current === "home") newStatus = "unsure";
+    else if (current === "unsure") newStatus = "away";
+    else newStatus = null;
+
+    // Optimistic update
+    setAttendance(prev => {
+      const copy = { ...prev, [date]: { ...(prev[date] || {}) } };
+      if (newStatus) copy[date][name] = newStatus;
+      else delete copy[date][name];
+      return copy;
+    });
+
+    if (newStatus) {
+      await supabase.from("attendance").upsert({ date, name, status: newStatus });
+    } else {
+      await supabase.from("attendance").delete().eq("date", date).eq("name", name);
+    }
+  }, [attendance]);
+
+  return { attendance, toggleAttendance };
+}
+
+function useIdeas() {
+  const [ideas, setIdeas] = useState({});
+
+  const fetchAll = useCallback(async () => {
+    const { data } = await supabase.from("ideas").select("*").order("created_at", { ascending: true });
+    setIdeas(groupIdeas(data));
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+    const channel = supabase.channel("ideas-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, fetchAll)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchAll]);
+
+  const addIdea = useCallback(async (date, { dish, tags, author }) => {
+    const { data } = await supabase.from("ideas")
+      .insert({ date, dish, tags, author, likes: [], comments: [] })
+      .select().single();
+    if (data) {
+      setIdeas(prev => ({
+        ...prev,
+        [date]: [...(prev[date] || []), {
+          id: data.id, dish: data.dish, author: data.author,
+          tags: data.tags || [], likes: data.likes || [], comments: data.comments || [],
+        }],
+      }));
+    }
+  }, []);
+
+  const likeIdea = useCallback(async (date, ideaId, userName) => {
+    // Read fresh from state
+    setIdeas(prev => {
+      const idea = prev[date]?.find(i => i.id === ideaId);
+      if (!idea) return prev;
+      const liked = idea.likes.includes(userName);
+      const newLikes = liked ? idea.likes.filter(n => n !== userName) : [...idea.likes, userName];
+      // Fire DB update (not awaited in setState, but fine for optimistic)
+      supabase.from("ideas").update({ likes: newLikes }).eq("id", ideaId);
+      return {
+        ...prev,
+        [date]: prev[date].map(i => i.id === ideaId ? { ...i, likes: newLikes } : i),
+      };
+    });
+  }, []);
+
+  const commentIdea = useCallback(async (date, ideaId, author, text) => {
+    setIdeas(prev => {
+      const idea = prev[date]?.find(i => i.id === ideaId);
+      if (!idea) return prev;
+      const newComments = [...(idea.comments || []), { author, text }];
+      supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+      return {
+        ...prev,
+        [date]: prev[date].map(i => i.id === ideaId ? { ...i, comments: newComments } : i),
+      };
+    });
+  }, []);
+
+  const deleteComment = useCallback(async (date, ideaId, commentIndex) => {
+    setIdeas(prev => {
+      const idea = prev[date]?.find(i => i.id === ideaId);
+      if (!idea) return prev;
+      const newComments = idea.comments.filter((_, idx) => idx !== commentIndex);
+      supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+      return {
+        ...prev,
+        [date]: prev[date].map(i => i.id === ideaId ? { ...i, comments: newComments } : i),
+      };
+    });
+  }, []);
+
+  const deleteIdea = useCallback(async (date, ideaId) => {
+    setIdeas(prev => ({
+      ...prev,
+      [date]: (prev[date] || []).filter(i => i.id !== ideaId),
+    }));
+    await supabase.from("ideas").delete().eq("id", ideaId);
+  }, []);
+
+  return { ideas, addIdea, likeIdea, commentIdea, deleteComment, deleteIdea };
+}
+
+function useMeals() {
+  const [meals, setMeals] = useState([]);
+
+  const fetchAll = useCallback(async () => {
+    const { data } = await supabase.from("meals").select("*").order("created_at", { ascending: false });
+    setMeals((data || []).map(m => ({
+      ...m, cost: parseFloat(m.cost) || 0, tags: m.tags || [],
+    })));
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+    const channel = supabase.channel("meals-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "meals" }, fetchAll)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchAll]);
+
+  const addMeal = useCallback(async (meal) => {
+    const { id, ...rest } = meal; // strip client-side id
+    const { data } = await supabase.from("meals").insert(rest).select().single();
+    if (data) {
+      setMeals(prev => [{ ...data, cost: parseFloat(data.cost) || 0, tags: data.tags || [] }, ...prev]);
+    }
+  }, []);
+
+  const updateMeal = useCallback(async (meal) => {
+    const { id, ...rest } = meal;
+    await supabase.from("meals").update(rest).eq("id", id);
+    setMeals(prev => prev.map(m => m.id === id ? { ...meal, cost: parseFloat(meal.cost) || 0 } : m));
+  }, []);
+
+  const deleteMeal = useCallback(async (id) => {
+    setMeals(prev => prev.filter(m => m.id !== id));
+    await supabase.from("meals").delete().eq("id", id);
+  }, []);
+
+  return { meals, addMeal, updateMeal, deleteMeal };
 }
 
 // ─── Design System ───────────────────────────────────────────────
@@ -80,7 +278,6 @@ const C = {
   green: "#3B7A48", greenLight: "#D6EDD9",
 };
 
-// ─── Injected Styles ─────────────────────────────────────────────
 const cssAnimation = `
 @keyframes fk-fadeUp {
   from { opacity: 0; transform: translateY(16px); }
@@ -94,10 +291,6 @@ const cssAnimation = `
   0% { transform: scale(1); }
   40% { transform: scale(1.25); }
   100% { transform: scale(1); }
-}
-@keyframes fk-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
 }
 .fk-card {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -160,8 +353,6 @@ function FlatmatePicker({ onSelect }) {
       padding: 32, fontFamily: fonts, position: "relative", overflow: "hidden",
     }}>
       <style>{cssAnimation}</style>
-
-      {/* Decorative background circles */}
       <div style={{
         position: "absolute", width: 340, height: 340, borderRadius: "50%",
         background: `radial-gradient(circle, ${C.accent}08, transparent 70%)`,
@@ -172,24 +363,17 @@ function FlatmatePicker({ onSelect }) {
         background: `radial-gradient(circle, ${C.green}06, transparent 70%)`,
         bottom: -40, left: -60, pointerEvents: "none",
       }} />
-
       <div style={{ animation: "fk-fadeUp 0.6s ease", position: "relative" }}>
-        <div style={{
-          fontSize: 44, textAlign: "center", marginBottom: 8,
-          animation: "fk-fadeUp 0.5s ease",
-        }}>🍳</div>
+        <div style={{ fontSize: 44, textAlign: "center", marginBottom: 8, animation: "fk-fadeUp 0.5s ease" }}>🍳</div>
         <h1 style={{
           fontFamily: displayFont, fontSize: 42, fontWeight: 400, color: C.text,
-          margin: "0 0 4px", letterSpacing: "-0.02em", textAlign: "center",
-          fontStyle: "italic",
+          margin: "0 0 4px", letterSpacing: "-0.02em", textAlign: "center", fontStyle: "italic",
         }}>Flat Kitchen</h1>
         <p style={{
           color: C.textMuted, fontSize: 15, margin: "0 0 48px",
-          fontFamily: fonts, fontWeight: 500, textAlign: "center",
-          letterSpacing: "0.02em",
+          fontFamily: fonts, fontWeight: 500, textAlign: "center", letterSpacing: "0.02em",
         }}>Who's cooking tonight?</p>
       </div>
-
       <div style={{
         display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 300,
         animation: "fk-fadeUp 0.7s ease 0.1s both",
@@ -232,8 +416,7 @@ function DayStrip({ selectedDate, onSelect }) {
 
   return (
     <div ref={stripRef} style={{
-      display: "flex", gap: 6, overflowX: "auto", padding: "0 16px 4px",
-      scrollbarWidth: "none",
+      display: "flex", gap: 6, overflowX: "auto", padding: "0 16px 4px", scrollbarWidth: "none",
     }}>
       {days.map(dk => {
         const { weekday, day } = formatDay(dk);
@@ -253,8 +436,7 @@ function DayStrip({ selectedDate, onSelect }) {
             <div style={{
               fontSize: 10, fontWeight: 700, textTransform: "uppercase",
               letterSpacing: "0.08em", marginBottom: 3,
-              color: sel ? C.accentSoft : today ? C.accent : C.textMuted,
-              fontFamily: fonts,
+              color: sel ? C.accentSoft : today ? C.accent : C.textMuted, fontFamily: fonts,
             }}>{weekday}</div>
             <div style={{
               fontSize: 21, fontWeight: 400, fontFamily: displayFont,
@@ -265,16 +447,10 @@ function DayStrip({ selectedDate, onSelect }) {
       })}
       <button onClick={() => {
         const input = document.createElement("input");
-        input.type = "date";
-        input.value = selectedDate;
-        input.style.position = "fixed";
-        input.style.opacity = "0";
-        input.style.top = "0";
+        input.type = "date"; input.value = selectedDate;
+        input.style.position = "fixed"; input.style.opacity = "0"; input.style.top = "0";
         document.body.appendChild(input);
-        input.addEventListener("change", (e) => {
-          onSelect(e.target.value);
-          document.body.removeChild(input);
-        });
+        input.addEventListener("change", (e) => { onSelect(e.target.value); document.body.removeChild(input); });
         input.addEventListener("blur", () => {
           setTimeout(() => { if (document.body.contains(input)) document.body.removeChild(input); }, 200);
         });
@@ -283,27 +459,13 @@ function DayStrip({ selectedDate, onSelect }) {
         flexShrink: 0, width: 54, padding: "10px 0 12px", borderRadius: 16,
         border: `1.5px dashed ${C.border}`, background: "transparent",
         cursor: "pointer", textAlign: "center", fontFamily: fonts,
-        color: C.textMuted, fontSize: 18,
-        transition: "all 0.15s ease",
+        color: C.textMuted, fontSize: 18, transition: "all 0.15s ease",
       }}>···</button>
     </div>
   );
 }
 
-function AttendanceRow({ currentUser, selectedDate, attendance, setAttendance }) {
-  const toggle = (name) => {
-    setAttendance(prev => {
-      const copy = JSON.parse(JSON.stringify(prev));
-      if (!copy[selectedDate]) copy[selectedDate] = {};
-      const cur = copy[selectedDate][name];
-      if (!cur) copy[selectedDate][name] = ATTENDANCE.HOME;
-      else if (cur === ATTENDANCE.HOME) copy[selectedDate][name] = ATTENDANCE.UNSURE;
-      else if (cur === ATTENDANCE.UNSURE) copy[selectedDate][name] = ATTENDANCE.AWAY;
-      else delete copy[selectedDate][name];
-      return copy;
-    });
-  };
-
+function AttendanceRow({ currentUser, selectedDate, attendance, onToggle }) {
   return (
     <div style={{ display: "flex", gap: 8, padding: "0 16px" }}>
       {FLATMATES.map(fm => {
@@ -312,17 +474,14 @@ function AttendanceRow({ currentUser, selectedDate, attendance, setAttendance })
         const ac = ATT_COLORS[status] || ATT_COLORS.none;
         const statusLabel = status === "home" ? "Home" : status === "away" ? "Away" : status === "unsure" ? "Unsure" : (isMe ? "Tap" : "—");
         return (
-          <button key={fm.name} className="fk-att-btn" onClick={() => { if (isMe) toggle(fm.name); }} style={{
+          <button key={fm.name} className="fk-att-btn" onClick={() => { if (isMe) onToggle(selectedDate, fm.name); }} style={{
             flex: 1, padding: "12px 0 10px", borderRadius: 14,
             border: status ? `2px solid ${ac.border}` : `2px dashed ${ac.border}`,
             background: ac.bg,
-            cursor: isMe ? "pointer" : "default", textAlign: "center",
-            position: "relative",
+            cursor: isMe ? "pointer" : "default", textAlign: "center", position: "relative",
           }}>
             <div style={{ fontSize: 16, marginBottom: 2 }}>{fm.emoji}</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: ac.text, fontFamily: fonts }}>
-              {fm.name}
-            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: ac.text, fontFamily: fonts }}>{fm.name}</div>
             <div style={{
               fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
               color: ac.text, fontFamily: fonts, marginTop: 1, opacity: 0.8,
@@ -347,10 +506,7 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
 
   const handleLike = (id) => {
     onLike(id);
-    if (!liked) {
-      setJustLiked(true);
-      setTimeout(() => setJustLiked(false), 400);
-    }
+    if (!liked) { setJustLiked(true); setTimeout(() => setJustLiked(false), 400); }
   };
 
   return (
@@ -387,18 +543,13 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 14 }}>
           <button className={justLiked ? "fk-like-pop" : ""} onClick={() => handleLike(idea.id)} style={{
             width: 48, height: 48, borderRadius: 14, border: "none",
-            background: liked
-              ? `linear-gradient(135deg, ${C.accentLight}, #FDD8CE)`
-              : C.cardAlt,
+            background: liked ? `linear-gradient(135deg, ${C.accentLight}, #FDD8CE)` : C.cardAlt,
             cursor: "pointer", fontSize: 20, display: "flex",
             alignItems: "center", justifyContent: "center",
             transition: "all 0.2s ease",
             boxShadow: liked ? `0 2px 8px ${C.accent}22` : "none",
           }}>{liked ? "❤️" : "🤍"}</button>
-          <span style={{
-            fontSize: 12, fontWeight: 700,
-            color: liked ? C.accent : C.textLight, fontFamily: fonts,
-          }}>{likeCount}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: liked ? C.accent : C.textLight, fontFamily: fonts }}>{likeCount}</span>
         </div>
       </div>
 
@@ -409,10 +560,7 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
           padding: 0, display: "flex", alignItems: "center", gap: 4,
         }}>
           💬 {idea.comments?.length || 0} comment{(idea.comments?.length || 0) !== 1 ? "s" : ""}
-          <span style={{
-            fontSize: 10, transition: "transform 0.2s ease", display: "inline-block",
-            transform: showComments ? "rotate(180deg)" : "none",
-          }}>▾</span>
+          <span style={{ fontSize: 10, transition: "transform 0.2s ease", display: "inline-block", transform: showComments ? "rotate(180deg)" : "none" }}>▾</span>
         </button>
 
         {showComments && (
@@ -423,28 +571,20 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
                 fontSize: 13, color: C.text, fontFamily: fonts, lineHeight: 1.5,
                 display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8,
               }}>
-                <div>
-                  <span style={{ fontWeight: 700, color: C.text }}>{c.author}</span>{" "}
-                  {c.text}
-                </div>
+                <div><span style={{ fontWeight: 700, color: C.text }}>{c.author}</span>{" "}{c.text}</div>
                 {c.author === currentUser && (
                   <button onClick={() => onDeleteComment(idea.id, i)} style={{
                     background: "none", border: "none", cursor: "pointer",
-                    fontSize: 11, color: C.textLight, fontFamily: fonts, padding: "2px 4px",
-                    flexShrink: 0,
+                    fontSize: 11, color: C.textLight, fontFamily: fonts, padding: "2px 4px", flexShrink: 0,
                   }}>✕</button>
                 )}
               </div>
             ))}
             <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               <input value={newComment} onChange={e => setNewComment(e.target.value)}
-                className="fk-input"
-                placeholder="Add a comment..."
+                className="fk-input" placeholder="Add a comment..."
                 onKeyDown={e => {
-                  if (e.key === "Enter" && newComment.trim()) {
-                    onComment(idea.id, newComment.trim());
-                    setNewComment("");
-                  }
+                  if (e.key === "Enter" && newComment.trim()) { onComment(idea.id, newComment.trim()); setNewComment(""); }
                 }}
                 style={{
                   flex: 1, padding: "9px 14px", borderRadius: 12,
@@ -467,8 +607,7 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
       {idea.author === currentUser && (
         <button onClick={() => onDelete(idea.id)} style={{
           marginTop: 10, background: "none", border: "none", cursor: "pointer",
-          fontSize: 11, color: C.textLight, fontFamily: fonts, padding: 0,
-          transition: "color 0.15s",
+          fontSize: 11, color: C.textLight, fontFamily: fonts, padding: 0, transition: "color 0.15s",
         }}>Delete idea</button>
       )}
     </div>
@@ -490,8 +629,7 @@ function TagPicker({ selected, onChange }) {
             border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
             background: active ? C.accentLight : "transparent",
             color: active ? C.accent : C.textMuted, cursor: "pointer",
-            fontFamily: fonts, fontWeight: active ? 700 : 500,
-            whiteSpace: "nowrap",
+            fontFamily: fonts, fontWeight: active ? 700 : 500, whiteSpace: "nowrap",
           }}>{t.emoji} {t.label}</button>
         );
       })}
@@ -520,8 +658,7 @@ function NewIdeaForm({ currentUser, onSubmit, onCancel }) {
     <div style={{
       background: C.card, borderRadius: 20, padding: 22,
       border: `1px solid ${C.border}`, marginBottom: 12,
-      boxShadow: "0 4px 20px rgba(28,23,20,0.06)",
-      animation: "fk-scaleIn 0.25s ease",
+      boxShadow: "0 4px 20px rgba(28,23,20,0.06)", animation: "fk-scaleIn 0.25s ease",
     }}>
       <div style={{
         fontSize: 20, fontWeight: 400, color: C.text, fontFamily: displayFont,
@@ -591,8 +728,7 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
     <div style={{
       background: C.card, borderRadius: 22, padding: 22,
       border: `1px solid ${C.border}`,
-      boxShadow: "0 4px 20px rgba(28,23,20,0.06)",
-      animation: "fk-scaleIn 0.25s ease",
+      boxShadow: "0 4px 20px rgba(28,23,20,0.06)", animation: "fk-scaleIn 0.25s ease",
     }}>
       <div style={{
         fontSize: 24, fontWeight: 400, color: C.text, fontFamily: displayFont,
@@ -611,13 +747,11 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         <div>
           <label style={labelSt}>Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            className="fk-input" style={fieldSt} />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="fk-input" style={fieldSt} />
         </div>
         <div>
           <label style={labelSt}>Cook</label>
-          <select value={cook} onChange={e => setCook(e.target.value)}
-            className="fk-input" style={fieldSt}>
+          <select value={cook} onChange={e => setCook(e.target.value)} className="fk-input" style={fieldSt}>
             {FLATMATES.map(fm => <option key={fm.name} value={fm.name}>{fm.name}</option>)}
           </select>
         </div>
@@ -643,8 +777,7 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
       <div style={{ marginBottom: 20 }}>
         <label style={labelSt}>Notes</label>
         <textarea value={comment} onChange={e => setComment(e.target.value)}
-          placeholder="Recipe link, tweaks..."
-          className="fk-input"
+          placeholder="Recipe link, tweaks..." className="fk-input"
           rows={2} style={{ ...fieldSt, resize: "vertical" }} />
       </div>
 
@@ -652,15 +785,14 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
         <button className="fk-btn" onClick={() => {
           if (!dish.trim()) return;
           onSubmit({
-            id: initial?.id || Date.now(), dish: dish.trim(), date, cook,
+            id: initial?.id, dish: dish.trim(), date, cook,
             tastiness, effort, cost: parseFloat(cost) || 0, comment: comment.trim(), tags,
           });
         }} style={{
           flex: 1, padding: "14px", borderRadius: 14, border: "none",
           background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
           color: "#fff", fontSize: 15, fontWeight: 600,
-          fontFamily: fonts, cursor: "pointer",
-          boxShadow: `0 4px 16px ${C.accent}33`,
+          fontFamily: fonts, cursor: "pointer", boxShadow: `0 4px 16px ${C.accent}33`,
         }}>{initial ? "Update" : "Save"}</button>
         <button className="fk-btn" onClick={onCancel} style={{
           padding: "14px 20px", borderRadius: 14, border: `1.5px solid ${C.border}`,
@@ -683,10 +815,7 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
     }}>
       <div onClick={() => setOpen(!open)} style={{ cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
         <div style={{ flex: 1 }}>
-          <div style={{
-            fontSize: 17, fontWeight: 400, color: C.text, fontFamily: displayFont,
-            lineHeight: 1.3, fontStyle: "italic",
-          }}>{meal.dish}</div>
+          <div style={{ fontSize: 17, fontWeight: 400, color: C.text, fontFamily: displayFont, lineHeight: 1.3, fontStyle: "italic" }}>{meal.dish}</div>
           <div style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts, marginTop: 3 }}>
             <span style={{ color: C.text, fontWeight: 600 }}>{meal.cook}</span>
             {" · "}{meal.date}{meal.cost > 0 && ` · €${meal.cost.toFixed(2)}`}
@@ -720,10 +849,7 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
         </div>
       </div>
       {open && (
-        <div style={{
-          marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}`,
-          animation: "fk-scaleIn 0.2s ease",
-        }}>
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}`, animation: "fk-scaleIn 0.2s ease" }}>
           {meal.comment && <p style={{
             margin: "0 0 12px", fontSize: 13, color: C.textMuted, fontFamily: fonts,
             fontStyle: "italic", lineHeight: 1.6,
@@ -752,17 +878,14 @@ function Stats({ meals }) {
     <div style={{
       background: `linear-gradient(145deg, ${C.dark} 0%, #342B20 60%, #3D3025 100%)`,
       borderRadius: 22, padding: 22, color: "#fff", marginBottom: 16,
-      boxShadow: "0 6px 24px rgba(28,23,20,0.2)",
-      animation: "fk-fadeUp 0.5s ease",
+      boxShadow: "0 6px 24px rgba(28,23,20,0.2)", animation: "fk-fadeUp 0.5s ease",
       position: "relative", overflow: "hidden",
     }}>
-      {/* Decorative gradient blob */}
       <div style={{
         position: "absolute", width: 180, height: 180, borderRadius: "50%",
         background: `radial-gradient(circle, ${C.accent}18, transparent 70%)`,
         top: -40, right: -30, pointerEvents: "none",
       }} />
-
       <div style={{
         fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em",
         color: C.textLight, fontFamily: fonts, marginBottom: 14,
@@ -782,14 +905,13 @@ function Stats({ meals }) {
       </div>
       <div style={{
         background: C.darkCard, borderRadius: 14, padding: 12,
-        fontSize: 12, fontFamily: fonts, color: C.textLight,
-        border: `1px solid #ffffff08`,
+        fontSize: 12, fontFamily: fonts, color: C.textLight, border: `1px solid #ffffff08`,
       }}>⭐ Best: <strong style={{ color: "#fff" }}>{topDish.dish}</strong> ({topDish.tastiness}/10) by {topDish.cook}</div>
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         {FLATMATES.map(fm => (
           <div key={fm.name} style={{
-            flex: 1, background: C.darkCard, borderRadius: 12, padding: 10, textAlign: "center",
-            border: `1px solid #ffffff08`,
+            flex: 1, background: C.darkCard, borderRadius: 12, padding: 10,
+            textAlign: "center", border: `1px solid #ffffff08`,
           }}>
             <div style={{ fontSize: 16, marginBottom: 2 }}>{fm.emoji}</div>
             <div style={{ fontSize: 10, color: C.accentLight, fontFamily: fonts }}>{fm.name}</div>
@@ -820,60 +942,46 @@ const smallBtn = {
 
 // ─── Main App ────────────────────────────────────────────────────
 export default function FlatKitchen() {
-  const [currentUser, setCurrentUser] = useStore("fk_user3", null);
+  const [currentUser, setCurrentUser] = useLocalStore("fk_user3", null);
   const [tab, setTab] = useState("today");
   const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
-  const [attendance, setAttendance] = useStore("fk_att3", {});
-  const [ideas, setIdeas] = useStore("fk_ideas3", {});
-  const [meals, setMeals] = useStore("fk_meals3", []);
   const [showIdeaForm, setShowIdeaForm] = useState(false);
   const [showMealForm, setShowMealForm] = useState(false);
   const [editMeal, setEditMeal] = useState(null);
   const [filterTag, setFilterTag] = useState(null);
 
+  const { attendance, toggleAttendance } = useAttendance();
+  const { ideas, addIdea, likeIdea, commentIdea, deleteComment, deleteIdea } = useIdeas();
+  const { meals, addMeal, updateMeal, deleteMeal } = useMeals();
+
   if (!currentUser) return <FlatmatePicker onSelect={setCurrentUser} />;
 
   const dayIdeas = ideas[selectedDate] || [];
-  const setDayIdeas = (fn) => setIdeas(prev => ({
-    ...prev, [selectedDate]: typeof fn === "function" ? fn(prev[selectedDate] || []) : fn,
-  }));
 
-  const addIdea = ({ dish, tags }) => {
-    setDayIdeas(prev => [...prev, {
-      id: Date.now(), dish, tags, author: currentUser, likes: [], comments: [],
-    }]);
+  const handleAddIdea = ({ dish, tags }) => {
+    addIdea(selectedDate, { dish, tags, author: currentUser });
     setShowIdeaForm(false);
   };
 
-  const likeIdea = (id) => {
-    setDayIdeas(prev => prev.map(i => {
-      if (i.id !== id) return i;
-      const liked = i.likes.includes(currentUser);
-      return { ...i, likes: liked ? i.likes.filter(n => n !== currentUser) : [...i.likes, currentUser] };
-    }));
+  const handleLikeIdea = (id) => {
+    likeIdea(selectedDate, id, currentUser);
   };
 
-  const commentIdea = (id, text) => {
-    setDayIdeas(prev => prev.map(i => {
-      if (i.id !== id) return i;
-      return { ...i, comments: [...(i.comments || []), { author: currentUser, text }] };
-    }));
+  const handleCommentIdea = (id, text) => {
+    commentIdea(selectedDate, id, currentUser, text);
   };
 
-  const deleteComment = (ideaId, commentIndex) => {
-    setDayIdeas(prev => prev.map(i => {
-      if (i.id !== ideaId) return i;
-      return { ...i, comments: i.comments.filter((_, idx) => idx !== commentIndex) };
-    }));
+  const handleDeleteComment = (ideaId, commentIndex) => {
+    deleteComment(selectedDate, ideaId, commentIndex);
   };
 
-  const deleteIdea = (id) => {
-    setDayIdeas(prev => prev.filter(i => i.id !== id));
+  const handleDeleteIdea = (id) => {
+    deleteIdea(selectedDate, id);
   };
 
   const submitMeal = (meal) => {
-    if (editMeal) setMeals(prev => prev.map(m => m.id === meal.id ? meal : m));
-    else setMeals(prev => [meal, ...prev]);
+    if (editMeal) updateMeal(meal);
+    else addMeal(meal);
     setShowMealForm(false);
     setEditMeal(null);
   };
@@ -888,13 +996,11 @@ export default function FlatKitchen() {
     <div style={{
       minHeight: "100dvh",
       background: `linear-gradient(180deg, ${C.bg} 0%, #EDE4D8 100%)`,
-      fontFamily: fonts, maxWidth: 480, margin: "0 auto",
-      position: "relative",
+      fontFamily: fonts, maxWidth: 480, margin: "0 auto", position: "relative",
     }}>
       <style>{cssAnimation}</style>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
 
-      {/* Noise texture overlay */}
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         opacity: 0.025, pointerEvents: "none", zIndex: 0,
@@ -904,8 +1010,8 @@ export default function FlatKitchen() {
 
       {/* Header */}
       <div style={{
-        padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center",
-        position: "relative", zIndex: 1,
+        padding: "16px 20px", display: "flex", justifyContent: "space-between",
+        alignItems: "center", position: "relative", zIndex: 1,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 22 }}>🍳</span>
@@ -921,31 +1027,22 @@ export default function FlatKitchen() {
         }}>{currentUser}</button>
       </div>
 
-      {/* Tabs — pill style */}
-      <div style={{
-        display: "flex", padding: "0 20px 12px", gap: 4,
-        position: "relative", zIndex: 1,
-      }}>
+      {/* Tabs */}
+      <div style={{ display: "flex", padding: "0 20px 12px", gap: 4, position: "relative", zIndex: 1 }}>
         <div style={{
           display: "flex", width: "100%",
           background: C.card, borderRadius: 14, padding: 4,
-          border: `1px solid ${C.border}`,
-          boxShadow: "0 1px 4px rgba(28,23,20,0.03)",
+          border: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(28,23,20,0.03)",
         }}>
           {[
             { id: "today", label: "Today", icon: "📅" },
             { id: "cookbook", label: "Cookbook", icon: "📖" },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
-              flex: 1, padding: "10px 0", border: "none",
-              borderRadius: 11,
-              background: tab === t.id
-                ? `linear-gradient(135deg, ${C.dark}, #3D3228)`
-                : "transparent",
-              cursor: "pointer",
-              fontSize: 13, fontWeight: 600,
-              color: tab === t.id ? "#fff" : C.textMuted,
-              fontFamily: fonts,
+              flex: 1, padding: "10px 0", border: "none", borderRadius: 11,
+              background: tab === t.id ? `linear-gradient(135deg, ${C.dark}, #3D3228)` : "transparent",
+              cursor: "pointer", fontSize: 13, fontWeight: 600,
+              color: tab === t.id ? "#fff" : C.textMuted, fontFamily: fonts,
               transition: "all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
               boxShadow: tab === t.id ? "0 2px 8px rgba(28,23,20,0.12)" : "none",
             }}>{t.icon} {t.label}</button>
@@ -958,7 +1055,6 @@ export default function FlatKitchen() {
         {tab === "today" && (
           <div>
             <DayStrip selectedDate={selectedDate} onSelect={setSelectedDate} />
-
             <div style={{ padding: "18px 20px 8px", textAlign: "center" }}>
               <div style={{
                 fontSize: 32, fontWeight: 400, color: C.text, fontFamily: displayFont,
@@ -973,7 +1069,7 @@ export default function FlatKitchen() {
                 color: C.textMuted, fontFamily: fonts,
               }}>Who's home for dinner?</div>
               <AttendanceRow currentUser={currentUser} selectedDate={selectedDate}
-                attendance={attendance} setAttendance={setAttendance} />
+                attendance={attendance} onToggle={toggleAttendance} />
             </div>
 
             <div style={{ padding: "0 16px 28px" }}>
@@ -996,15 +1092,14 @@ export default function FlatKitchen() {
               </div>
 
               {showIdeaForm && (
-                <NewIdeaForm currentUser={currentUser} onSubmit={addIdea} onCancel={() => setShowIdeaForm(false)} />
+                <NewIdeaForm currentUser={currentUser} onSubmit={handleAddIdea} onCancel={() => setShowIdeaForm(false)} />
               )}
 
               {dayIdeas.length === 0 && !showIdeaForm && (
                 <div style={{
                   textAlign: "center", padding: "36px 24px", color: C.textLight,
                   border: `1.5px dashed ${C.border}`, borderRadius: 20,
-                  background: `${C.card}80`,
-                  animation: "fk-fadeUp 0.5s ease",
+                  background: `${C.card}80`, animation: "fk-fadeUp 0.5s ease",
                 }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>💡</div>
                   <div style={{
@@ -1017,8 +1112,9 @@ export default function FlatKitchen() {
 
               {[...dayIdeas].sort((a, b) => (b.likes?.length || 0) - (a.likes?.length || 0)).map((idea, i) => (
                 <IdeaCard key={idea.id} idea={idea} currentUser={currentUser}
-                  onLike={likeIdea} onComment={commentIdea} onDeleteComment={deleteComment}
-                  onDelete={deleteIdea} delay={i * 0.06} />
+                  onLike={handleLikeIdea} onComment={handleCommentIdea}
+                  onDeleteComment={handleDeleteComment} onDelete={handleDeleteIdea}
+                  delay={i * 0.06} />
               ))}
             </div>
           </div>
@@ -1045,8 +1141,7 @@ export default function FlatKitchen() {
                 {meals.length > 0 && (
                   <div style={{ marginBottom: 14 }}>
                     <div style={{
-                      display: "flex", gap: 5, overflowX: "auto", paddingBottom: 4,
-                      scrollbarWidth: "none",
+                      display: "flex", gap: 5, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none",
                     }}>
                       <button className="fk-tag" onClick={() => setFilterTag(null)} style={{
                         padding: "5px 12px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
@@ -1074,17 +1169,12 @@ export default function FlatKitchen() {
                 )}
 
                 {sortedMeals.length === 0 ? (
-                  <div style={{
-                    textAlign: "center", padding: "40px 24px", color: C.textLight,
-                    animation: "fk-fadeUp 0.5s ease",
-                  }}>
+                  <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
                     <div style={{ fontSize: 40, marginBottom: 10 }}>🍳</div>
                     <div style={{
                       fontSize: 18, fontFamily: displayFont, fontWeight: 400,
                       color: C.textMuted, fontStyle: "italic",
-                    }}>
-                      {filterTag ? "No meals with this tag" : "No meals yet"}
-                    </div>
+                    }}>{filterTag ? "No meals with this tag" : "No meals yet"}</div>
                     <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>
                       {filterTag ? "Try a different filter" : "Cook something and log it!"}
                     </div>
@@ -1093,7 +1183,7 @@ export default function FlatKitchen() {
                   sortedMeals.map((m, i) => (
                     <MealCard key={m.id} meal={m} delay={i * 0.05}
                       onEdit={m => { setEditMeal(m); setShowMealForm(true); }}
-                      onDelete={id => setMeals(prev => prev.filter(x => x.id !== id))} />
+                      onDelete={deleteMeal} />
                   ))
                 )}
               </>
