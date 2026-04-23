@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // ─── Supabase ────────────────────────────────────────────────────
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const supabase = supabaseUrl && supabaseKey
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 // ─── Data ────────────────────────────────────────────────────────
 const FLATMATES = [
@@ -104,11 +105,13 @@ function useAttendance() {
   const [attendance, setAttendance] = useState({});
 
   const fetchAll = useCallback(async () => {
+    if (!supabase) return;
     const { data } = await supabase.from("attendance").select("*");
     setAttendance(groupAttendance(data));
   }, []);
 
   useEffect(() => {
+    if (!supabase) return;
     fetchAll();
     const channel = supabase.channel("attendance-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, fetchAll)
@@ -124,7 +127,6 @@ function useAttendance() {
     else if (current === "unsure") newStatus = "away";
     else newStatus = null;
 
-    // Optimistic update
     setAttendance(prev => {
       const copy = { ...prev, [date]: { ...(prev[date] || {}) } };
       if (newStatus) copy[date][name] = newStatus;
@@ -132,6 +134,7 @@ function useAttendance() {
       return copy;
     });
 
+    if (!supabase) return;
     if (newStatus) {
       await supabase.from("attendance").upsert({ date, name, status: newStatus });
     } else {
@@ -146,11 +149,13 @@ function useIdeas() {
   const [ideas, setIdeas] = useState({});
 
   const fetchAll = useCallback(async () => {
+    if (!supabase) return;
     const { data } = await supabase.from("ideas").select("*").order("created_at", { ascending: true });
     setIdeas(groupIdeas(data));
   }, []);
 
   useEffect(() => {
+    if (!supabase) return;
     fetchAll();
     const channel = supabase.channel("ideas-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, fetchAll)
@@ -159,6 +164,7 @@ function useIdeas() {
   }, [fetchAll]);
 
   const addIdea = useCallback(async (date, { dish, tags, author }) => {
+    if (!supabase) return;
     const { data } = await supabase.from("ideas")
       .insert({ date, dish, tags, author, likes: [], comments: [] })
       .select().single();
@@ -180,8 +186,7 @@ function useIdeas() {
       if (!idea) return prev;
       const liked = idea.likes.includes(userName);
       const newLikes = liked ? idea.likes.filter(n => n !== userName) : [...idea.likes, userName];
-      // Fire DB update (not awaited in setState, but fine for optimistic)
-      supabase.from("ideas").update({ likes: newLikes }).eq("id", ideaId);
+      if (supabase) supabase.from("ideas").update({ likes: newLikes }).eq("id", ideaId);
       return {
         ...prev,
         [date]: prev[date].map(i => i.id === ideaId ? { ...i, likes: newLikes } : i),
@@ -194,7 +199,7 @@ function useIdeas() {
       const idea = prev[date]?.find(i => i.id === ideaId);
       if (!idea) return prev;
       const newComments = [...(idea.comments || []), { author, text }];
-      supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+      if (supabase) supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
       return {
         ...prev,
         [date]: prev[date].map(i => i.id === ideaId ? { ...i, comments: newComments } : i),
@@ -207,7 +212,7 @@ function useIdeas() {
       const idea = prev[date]?.find(i => i.id === ideaId);
       if (!idea) return prev;
       const newComments = idea.comments.filter((_, idx) => idx !== commentIndex);
-      supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
+      if (supabase) supabase.from("ideas").update({ comments: newComments }).eq("id", ideaId);
       return {
         ...prev,
         [date]: prev[date].map(i => i.id === ideaId ? { ...i, comments: newComments } : i),
@@ -220,7 +225,7 @@ function useIdeas() {
       ...prev,
       [date]: (prev[date] || []).filter(i => i.id !== ideaId),
     }));
-    await supabase.from("ideas").delete().eq("id", ideaId);
+    if (supabase) await supabase.from("ideas").delete().eq("id", ideaId);
   }, []);
 
   return { ideas, addIdea, likeIdea, commentIdea, deleteComment, deleteIdea };
@@ -230,6 +235,7 @@ function useMeals() {
   const [meals, setMeals] = useState([]);
 
   const fetchAll = useCallback(async () => {
+    if (!supabase) return;
     const { data } = await supabase.from("meals").select("*").order("created_at", { ascending: false });
     setMeals((data || []).map(m => ({
       ...m, cost: parseFloat(m.cost) || 0, tags: m.tags || [],
@@ -237,6 +243,7 @@ function useMeals() {
   }, []);
 
   useEffect(() => {
+    if (!supabase) return;
     fetchAll();
     const channel = supabase.channel("meals-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "meals" }, fetchAll)
@@ -245,6 +252,7 @@ function useMeals() {
   }, [fetchAll]);
 
   const addMeal = useCallback(async (meal) => {
+    if (!supabase) return;
     const { id, ...rest } = meal; // strip client-side id
     const { data } = await supabase.from("meals").insert(rest).select().single();
     if (data) {
@@ -253,6 +261,7 @@ function useMeals() {
   }, []);
 
   const updateMeal = useCallback(async (meal) => {
+    if (!supabase) return;
     const { id, ...rest } = meal;
     await supabase.from("meals").update(rest).eq("id", id);
     setMeals(prev => prev.map(m => m.id === id ? { ...meal, cost: parseFloat(meal.cost) || 0 } : m));
@@ -260,7 +269,7 @@ function useMeals() {
 
   const deleteMeal = useCallback(async (id) => {
     setMeals(prev => prev.filter(m => m.id !== id));
-    await supabase.from("meals").delete().eq("id", id);
+    if (supabase) await supabase.from("meals").delete().eq("id", id);
   }, []);
 
   return { meals, addMeal, updateMeal, deleteMeal };
