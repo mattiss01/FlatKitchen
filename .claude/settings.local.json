@@ -10,7 +10,9 @@
       "Bash(git push:*)",
       "Bash(npx skills:*)",
       "Bash(ls vercel.json .vercel)",
-      "Bash(which vercel *)"
+      "Bash(which vercel *)",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/gamersi/chefkoch-api/main/index.d.ts\")",
+      "Bash(npm run *)"
     ]
   }
 }
