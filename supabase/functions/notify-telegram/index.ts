@@ -27,6 +27,7 @@ type Expense = {
   amount: number;
   paid_by: string;
   description: string;
+  split_between: string[];
 };
 
 type WebhookPayload = {
@@ -113,7 +114,8 @@ function messageFor(payload: WebhookPayload): string | null {
 
     if (payload.type === "INSERT") {
       const desc = r.description ? ` <i>(${esc(r.description)})</i>` : "";
-      return `💶 ${esc(r.paid_by)} paid <b>€${parseFloat(String(r.amount)).toFixed(2)}</b>${desc}${openLink}`;
+      const split = r.split_between?.length > 0 ? ` · split between ${r.split_between.map(esc).join(", ")}` : "";
+      return `💶 ${esc(r.paid_by)} paid <b>€${parseFloat(String(r.amount)).toFixed(2)}</b>${desc}${split}${openLink}`;
     }
 
     return null;

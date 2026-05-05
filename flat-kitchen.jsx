@@ -451,11 +451,11 @@ function useExpenses() {
     return () => { supabase.removeChannel(channel); };
   }, [fetchAll]);
 
-  const addExpense = useCallback(async (amount, paidBy, description) => {
+  const addExpense = useCallback(async (amount, paidBy, description, splitBetween) => {
     if (!supabase) return;
     const tempId = `temp-${Date.now()}`;
-    setExpenses(prev => [{ id: tempId, amount, paid_by: paidBy, description, created_at: new Date().toISOString() }, ...prev]);
-    const { data, error } = await supabase.from("expenses").insert({ amount, paid_by: paidBy, description }).select().single();
+    setExpenses(prev => [{ id: tempId, amount, paid_by: paidBy, description, split_between: splitBetween, created_at: new Date().toISOString() }, ...prev]);
+    const { data, error } = await supabase.from("expenses").insert({ amount, paid_by: paidBy, description, split_between: splitBetween }).select().single();
     if (error) {
       console.error("[expenses] insert failed:", error);
       setExpenses(prev => prev.filter(e => e.id !== tempId));
@@ -1600,13 +1600,15 @@ function ShoppingItemRow({ item, currentUser, onMarkBought, onUnmarkBought, onDe
 }
 
 function settleDebts(expenses) {
-  const n = FLATMATES.length;
   const balances = {};
   FLATMATES.forEach(f => { balances[f.name] = 0; });
   expenses.forEach(e => {
-    const share = e.amount / n;
+    const participants = (e.split_between && e.split_between.length > 0)
+      ? e.split_between
+      : FLATMATES.map(f => f.name);
+    const share = e.amount / participants.length;
     balances[e.paid_by] = (balances[e.paid_by] || 0) + e.amount;
-    FLATMATES.forEach(f => { balances[f.name] -= share; });
+    participants.forEach(name => { balances[name] = (balances[name] || 0) - share; });
   });
 
   const debtors = FLATMATES.filter(f => balances[f.name] < -0.01).map(f => ({ name: f.name, amount: -balances[f.name] }));
@@ -1633,13 +1635,23 @@ function ExpensesTab({ currentUser, expenses, onAdd, onDelete }) {
   const [amount, setAmount] = useState("");
   const [paidBy, setPaidBy] = useState(currentUser);
   const [description, setDescription] = useState("");
+  const [splitBetween, setSplitBetween] = useState(FLATMATES.map(f => f.name));
+
+  const toggleParticipant = (name) => {
+    setSplitBetween(prev =>
+      prev.includes(name)
+        ? prev.length > 1 ? prev.filter(n => n !== name) : prev
+        : [...prev, name]
+    );
+  };
 
   const handleAdd = () => {
     const a = parseFloat(amount);
     if (!a || a <= 0) return;
-    onAdd(a, paidBy, description.trim());
+    onAdd(a, paidBy, description.trim(), splitBetween);
     setAmount("");
     setDescription("");
+    setSplitBetween(FLATMATES.map(f => f.name));
   };
 
   const { transactions } = settleDebts(expenses);
@@ -1672,7 +1684,7 @@ function ExpensesTab({ currentUser, expenses, onAdd, onDelete }) {
             {FLATMATES.map(f => <option key={f.name} value={f.name}>{f.emoji} {f.name}</option>)}
           </select>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <input value={description} onChange={e => setDescription(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
             placeholder="What was bought? (optional)" className="fk-input"
@@ -1688,6 +1700,23 @@ function ExpensesTab({ currentUser, expenses, onAdd, onDelete }) {
             color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: fonts,
             cursor: "pointer", boxShadow: `0 4px 16px ${C.accent}33`,
           }}>+</button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, fontFamily: fonts, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>Split between</span>
+          <div style={{ display: "flex", gap: 5 }}>
+            {FLATMATES.map(f => {
+              const active = splitBetween.includes(f.name);
+              return (
+                <button key={f.name} className="fk-tag" onClick={() => toggleParticipant(f.name)} style={{
+                  padding: "5px 10px", borderRadius: 20, fontSize: 12,
+                  border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
+                  background: active ? C.accentLight : "transparent",
+                  color: active ? C.accent : C.textMuted,
+                  cursor: "pointer", fontFamily: fonts, fontWeight: active ? 700 : 500,
+                }}>{f.emoji} {f.name}</button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1763,6 +1792,11 @@ function ExpensesTab({ currentUser, expenses, onAdd, onDelete }) {
                   </div>
                   {e.description && (
                     <div style={{ fontSize: 12, color: C.textLight, fontFamily: fonts, marginTop: 2 }}>{e.description}</div>
+                  )}
+                  {e.split_between && e.split_between.length > 0 && e.split_between.length < FLATMATES.length && (
+                    <div style={{ fontSize: 11, color: C.textLight, fontFamily: fonts, marginTop: 2 }}>
+                      split between {e.split_between.join(", ")}
+                    </div>
                   )}
                 </div>
                 <button onClick={() => onDelete(e.id)} style={{
