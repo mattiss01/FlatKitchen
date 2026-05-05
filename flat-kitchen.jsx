@@ -1785,8 +1785,6 @@ export default function FlatKitchen() {
         {/* ─── COOKBOOK TAB ─── */}
         {tab === "cookbook" && (
           <div style={{ padding: "12px 16px 28px" }}>
-            <Stats meals={meals} />
-
             {/* Sub-tab switcher */}
             <div style={{ display: "flex", gap: 5, marginBottom: 16 }}>
               {[{ id: "meals", label: "🍽 Meals" }, { id: "recipes", label: "📚 Recipes" }].map(st => {
