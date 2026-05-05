@@ -281,6 +281,7 @@ function useMeals() {
       recipe_url: m.recipe_url || null,
       recipe_image: m.recipe_image || null,
       recipe_title: m.recipe_title || null,
+      photo_url: m.photo_url || null,
     })));
   }, []);
 
@@ -1065,6 +1066,24 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels, isFavor
     initial?.recipe_url ? { url: initial.recipe_url, image: initial.recipe_image, title: initial.recipe_title } : null
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState(initial?.photo_url || null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoInputRef = useRef(null);
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !supabase) return;
+    setPhotoUploading(true);
+    const path = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const { data, error } = await supabase.storage.from("meal-photos").upload(path, file);
+    if (error) {
+      console.error("[photo] upload failed:", error);
+    } else {
+      const { data: { publicUrl } } = supabase.storage.from("meal-photos").getPublicUrl(data.path);
+      setPhotoUrl(publicUrl);
+    }
+    setPhotoUploading(false);
+  };
 
   return (
     <div style={{
@@ -1153,6 +1172,33 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels, isFavor
           rows={2} style={{ ...fieldSt, resize: "vertical" }} />
       </div>
 
+      <div style={{ marginBottom: 20 }}>
+        <label style={labelSt}>Photo</label>
+        <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoChange}
+          style={{ display: "none" }} />
+        {photoUrl ? (
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <img src={photoUrl} alt="meal" style={{
+              width: "100%", maxHeight: 200, objectFit: "cover",
+              borderRadius: 12, border: `1px solid ${C.border}`,
+            }} />
+            <button onClick={() => setPhotoUrl(null)} style={{
+              position: "absolute", top: 6, right: 6,
+              background: "rgba(28,23,20,0.6)", border: "none", borderRadius: 8,
+              color: "#fff", fontSize: 13, cursor: "pointer", padding: "3px 7px",
+            }}>✕</button>
+          </div>
+        ) : (
+          <button className="fk-btn" type="button" onClick={() => photoInputRef.current?.click()}
+            disabled={photoUploading} style={{
+              width: "100%", padding: "10px 14px", borderRadius: 12,
+              border: `1.5px dashed ${C.border}`, background: "transparent",
+              color: photoUploading ? C.textLight : C.textMuted, fontSize: 13,
+              fontWeight: 600, fontFamily: fonts, cursor: "pointer",
+            }}>{photoUploading ? "Uploading…" : "📷 Add photo (optional)"}</button>
+        )}
+      </div>
+
       <div style={{ display: "flex", gap: 8 }}>
         <button className="fk-btn" onClick={() => {
           if (!dish.trim()) return;
@@ -1162,6 +1208,7 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels, isFavor
             recipe_url: recipe?.url || null,
             recipe_image: recipe?.image || null,
             recipe_title: recipe?.title || null,
+            photo_url: photoUrl || null,
           });
         }} style={{
           flex: 1, padding: "14px", borderRadius: 14, border: "none",
@@ -1195,7 +1242,13 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
       boxShadow: "0 2px 8px rgba(28,23,20,0.04), 0 1px 2px rgba(28,23,20,0.02)",
       animation: `fk-fadeUp 0.4s ease ${delay || 0}s both`,
     }}>
-      <div onClick={() => setOpen(!open)} style={{ cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
+      <div onClick={() => setOpen(!open)} style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10 }}>
+        {meal.photo_url && (
+          <img src={meal.photo_url} alt="" style={{
+            width: 52, height: 52, borderRadius: 10, objectFit: "cover",
+            flexShrink: 0, border: `1px solid ${C.borderLight}`,
+          }} />
+        )}
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 17, fontWeight: 400, color: C.text, fontFamily: displayFont, lineHeight: 1.3, fontStyle: "italic" }}>{meal.dish}</div>
           <div style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts, marginTop: 3 }}>
@@ -1229,6 +1282,13 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
       </div>
       {open && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}`, animation: "fk-scaleIn 0.2s ease" }}>
+          {meal.photo_url && (
+            <img src={meal.photo_url} alt={meal.dish} style={{
+              width: "100%", maxHeight: 220, objectFit: "cover",
+              borderRadius: 12, marginBottom: 12,
+              border: `1px solid ${C.borderLight}`,
+            }} />
+          )}
           {meal.comment && <p style={{
             margin: "0 0 12px", fontSize: 13, color: C.textMuted, fontFamily: fonts,
             fontStyle: "italic", lineHeight: 1.6,
