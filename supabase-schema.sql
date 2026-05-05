@@ -34,16 +34,32 @@ create table meals (
   created_at timestamptz default now()
 );
 
+-- Shopping list table
+create table shopping_items (
+  id bigint generated always as identity primary key,
+  text text not null,
+  added_by text not null,
+  bought_by text default null,
+  bought_at timestamptz default null,
+  created_at timestamptz default now()
+);
+
 -- Enable Row Level Security with permissive policies
 alter table attendance enable row level security;
 alter table ideas enable row level security;
 alter table meals enable row level security;
+alter table shopping_items enable row level security;
 
 create policy "Allow all" on attendance for all to anon using (true) with check (true);
 create policy "Allow all" on ideas for all to anon using (true) with check (true);
 create policy "Allow all" on meals for all to anon using (true) with check (true);
+create policy "Allow all" on shopping_items for all to anon using (true) with check (true);
 
 -- Enable real-time sync
 alter publication supabase_realtime add table attendance;
 alter publication supabase_realtime add table ideas;
 alter publication supabase_realtime add table meals;
+alter publication supabase_realtime add table shopping_items;
+
+-- Required for Telegram webhook to receive full old_record on UPDATE (bought_by transition)
+alter table public.shopping_items replica identity full;

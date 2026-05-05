@@ -1,5 +1,5 @@
-// Posts Telegram messages to a group chat on new ideas and new comments.
-// Triggered by a Supabase Database Webhook on the `ideas` table.
+// Posts Telegram messages to a group chat on new ideas, new comments, and shopping list events.
+// Triggered by Supabase Database Webhooks on the `ideas` and `shopping_items` tables.
 // See ./README.md for setup.
 
 type Comment = { author: string; text: string };
@@ -14,11 +14,19 @@ type Idea = {
   comments?: Comment[];
 };
 
+type ShoppingItem = {
+  id: string;
+  text: string;
+  added_by: string;
+  bought_by: string | null;
+  bought_at: string | null;
+};
+
 type WebhookPayload = {
   type: "INSERT" | "UPDATE" | "DELETE";
   table: string;
-  record: Idea;
-  old_record: Idea | null;
+  record: Idea | ShoppingItem;
+  old_record: Idea | ShoppingItem | null;
 };
 
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
@@ -51,22 +59,45 @@ async function send(text: string): Promise<void> {
 }
 
 function messageFor(payload: WebhookPayload): string | null {
-  if (payload.table !== "ideas") return null;
-  const r = payload.record;
+  // ─── ideas ───────────────────────────────────────────────────────
+  if (payload.table === "ideas") {
+    const r = payload.record as Idea;
 
-  if (payload.type === "INSERT") {
-    const tags = r.tags?.length
-      ? ` <i>[${r.tags.map(esc).join(", ")}]</i>`
-      : "";
-    return `🍽️ New dinner idea: <b>${esc(r.dish)}</b> on ${esc(r.date)} — by ${esc(r.author)}${tags}${openLink}`;
+    if (payload.type === "INSERT") {
+      const tags = r.tags?.length
+        ? ` <i>[${r.tags.map(esc).join(", ")}]</i>`
+        : "";
+      return `🍽️ New dinner idea: <b>${esc(r.dish)}</b> on ${esc(r.date)} — by ${esc(r.author)}${tags}${openLink}`;
+    }
+
+    if (payload.type === "UPDATE") {
+      const newCount = r.comments?.length ?? 0;
+      const oldCount = (payload.old_record as Idea)?.comments?.length ?? 0;
+      if (newCount <= oldCount) return null;
+      const latest = r.comments![newCount - 1];
+      return `💬 ${esc(latest.author)} on <b>${esc(r.dish)}</b>: ${esc(latest.text)}${openLink}`;
+    }
+
+    return null;
   }
 
-  if (payload.type === "UPDATE") {
-    const newCount = r.comments?.length ?? 0;
-    const oldCount = payload.old_record?.comments?.length ?? 0;
-    if (newCount <= oldCount) return null;
-    const latest = r.comments![newCount - 1];
-    return `💬 ${esc(latest.author)} on <b>${esc(r.dish)}</b>: ${esc(latest.text)}${openLink}`;
+  // ─── shopping_items ──────────────────────────────────────────────
+  if (payload.table === "shopping_items") {
+    const r = payload.record as ShoppingItem;
+
+    if (payload.type === "INSERT") {
+      return `🛒 ${esc(r.added_by)} added to shopping list: <b>${esc(r.text)}</b>${openLink}`;
+    }
+
+    if (payload.type === "UPDATE") {
+      const old = payload.old_record as ShoppingItem | null;
+      if (r.bought_by && !old?.bought_by) {
+        return `✅ ${esc(r.bought_by)} bought <b>${esc(r.text)}</b>${openLink}`;
+      }
+      return null;
+    }
+
+    return null;
   }
 
   return null;

@@ -15,33 +15,18 @@ const FLATMATES = [
   { name: "Jakob", emoji: "🦅" },
 ];
 
-const TAGS = [
-  { id: "vegan", label: "Vegan", emoji: "🌱" },
-  { id: "vegetarian", label: "Vegetarian", emoji: "🥚" },
-  { id: "meat", label: "Meat", emoji: "🥩" },
-  { id: "fish", label: "Fish", emoji: "🐟" },
-  { id: "pasta", label: "Pasta", emoji: "🍝" },
-  { id: "rice", label: "Rice", emoji: "🍚" },
-  { id: "soup", label: "Soup", emoji: "🍲" },
-  { id: "salad", label: "Salad", emoji: "🥗" },
-  { id: "curry", label: "Curry", emoji: "🍛" },
-  { id: "asian", label: "Asian", emoji: "🥢" },
-  { id: "italian", label: "Italian", emoji: "🇮🇹" },
-  { id: "mexican", label: "Mexican", emoji: "🌮" },
-  { id: "indian", label: "Indian", emoji: "🫓" },
-  { id: "middleeastern", label: "Middle Eastern", emoji: "🧆" },
-  { id: "quick", label: "Quick (<30min)", emoji: "⚡" },
-  { id: "mealprep", label: "Meal Prep", emoji: "📦" },
-  { id: "comfort", label: "Comfort Food", emoji: "🛋" },
-  { id: "healthy", label: "Healthy", emoji: "💚" },
-  { id: "spicy", label: "Spicy", emoji: "🌶" },
-  { id: "baking", label: "Baking", emoji: "🍞" },
-  { id: "bbq", label: "BBQ", emoji: "🔥" },
-  { id: "breakfast", label: "Breakfast", emoji: "🥞" },
-  { id: "dessert", label: "Dessert", emoji: "🍰" },
-  { id: "budget", label: "Budget", emoji: "💸" },
-  { id: "fancy", label: "Fancy", emoji: "✨" },
-];
+const LEGACY_TAG_MAP = {
+  vegan: "Vegan", vegetarian: "Vegetarian", meat: "Meat", fish: "Fish",
+  pasta: "Pasta", rice: "Rice", soup: "Soup", salad: "Salad", curry: "Curry",
+  asian: "Asian", italian: "Italian", mexican: "Mexican", indian: "Indian",
+  middleeastern: "Middle Eastern", quick: "Quick (<30min)", mealprep: "Meal Prep",
+  comfort: "Comfort Food", healthy: "Healthy", spicy: "Spicy",
+  baking: "Baking", bbq: "BBQ", breakfast: "Breakfast", dessert: "Dessert",
+  budget: "Budget", fancy: "Fancy",
+};
+function normalizeTags(tags) {
+  return (tags || []).map(t => LEGACY_TAG_MAP[t] || t);
+}
 
 const ATTENDANCE = { HOME: "home", AWAY: "away", UNSURE: "unsure" };
 
@@ -95,7 +80,7 @@ function groupIdeas(rows) {
     if (!grouped[r.date]) grouped[r.date] = [];
     grouped[r.date].push({
       id: r.id, dish: r.dish, author: r.author,
-      tags: r.tags || [], likes: r.likes || [], comments: r.comments || [],
+      tags: normalizeTags(r.tags), likes: r.likes || [], comments: r.comments || [],
       recipe_url: r.recipe_url || null,
       recipe_image: r.recipe_image || null,
       recipe_title: r.recipe_title || null,
@@ -304,7 +289,7 @@ function useMeals() {
     if (!supabase) return;
     const { data } = await supabase.from("meals").select("*").order("created_at", { ascending: false });
     setMeals((data || []).map(m => ({
-      ...m, cost: parseFloat(m.cost) || 0, tags: m.tags || [],
+      ...m, cost: parseFloat(m.cost) || 0, tags: normalizeTags(m.tags),
     })));
   }, []);
 
@@ -405,6 +390,56 @@ function useFavorites() {
   [favorites]);
 
   return { favorites, addFavorite, removeFavorite, isFavorite, findFavorite };
+}
+
+function useShopping() {
+  const [items, setItems] = useState([]);
+
+  const fetchAll = useCallback(async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from("shopping_items").select("*").order("created_at", { ascending: true });
+    setItems(data || []);
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    fetchAll();
+    const channel = supabase.channel("shopping-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "shopping_items" }, fetchAll)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchAll]);
+
+  const addItem = useCallback(async (text, addedBy) => {
+    if (!supabase) return;
+    const tempId = `temp-${Date.now()}`;
+    setItems(prev => [...prev, { id: tempId, text, added_by: addedBy, bought_by: null, bought_at: null, created_at: new Date().toISOString() }]);
+    const { data, error } = await supabase.from("shopping_items").insert({ text, added_by: addedBy }).select().single();
+    if (error) {
+      console.error("[shopping] insert failed:", error);
+      setItems(prev => prev.filter(i => i.id !== tempId));
+    } else {
+      setItems(prev => prev.map(i => i.id === tempId ? data : i));
+    }
+  }, []);
+
+  const markBought = useCallback(async (id, boughtBy) => {
+    const now = new Date().toISOString();
+    setItems(prev => prev.map(i => i.id === id ? { ...i, bought_by: boughtBy, bought_at: now } : i));
+    if (supabase) await supabase.from("shopping_items").update({ bought_by: boughtBy, bought_at: now }).eq("id", id);
+  }, []);
+
+  const unmarkBought = useCallback(async (id) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, bought_by: null, bought_at: null } : i));
+    if (supabase) await supabase.from("shopping_items").update({ bought_by: null, bought_at: null }).eq("id", id);
+  }, []);
+
+  const deleteItem = useCallback(async (id) => {
+    setItems(prev => prev.filter(i => i.id !== id));
+    if (supabase) await supabase.from("shopping_items").delete().eq("id", id);
+  }, []);
+
+  return { items, addItem, markBought, unmarkBought, deleteItem };
 }
 
 function useChefkochSearch() {
@@ -703,16 +738,13 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
           </div>
           {idea.tags?.length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
-              {idea.tags.map(tid => {
-                const t = TAGS.find(x => x.id === tid);
-                return t ? (
-                  <span key={tid} style={{
-                    fontSize: 11, padding: "3px 9px", borderRadius: 20,
-                    background: C.cardAlt, border: `1px solid ${C.borderLight}`,
-                    color: C.textMuted, fontFamily: fonts, whiteSpace: "nowrap",
-                  }}>{t.emoji} {t.label}</span>
-                ) : null;
-              })}
+              {idea.tags.map((label, i) => (
+                <span key={i} style={{
+                  fontSize: 11, padding: "3px 9px", borderRadius: 20,
+                  background: C.cardAlt, border: `1px solid ${C.borderLight}`,
+                  color: C.textMuted, fontFamily: fonts, whiteSpace: "nowrap",
+                }}>{label}</span>
+              ))}
             </div>
           )}
           {idea.recipe_url && (
@@ -808,44 +840,77 @@ function IdeaCard({ idea, currentUser, onLike, onComment, onDeleteComment, onDel
   );
 }
 
-function TagPicker({ selected, onChange }) {
-  const [expanded, setExpanded] = useState(false);
-  const shown = expanded ? TAGS : TAGS.slice(0, 8);
+function LabelInput({ selected, onChange, allLabels }) {
+  const [inputVal, setInputVal] = useState("");
+
+  const available = (inputVal.trim()
+    ? allLabels.filter(l => l.toLowerCase().includes(inputVal.trim().toLowerCase()))
+    : allLabels
+  ).filter(l => !selected.includes(l));
+
+  const addLabel = (label) => {
+    const trimmed = label.trim();
+    if (!trimmed || selected.includes(trimmed)) return;
+    onChange([...selected, trimmed]);
+    setInputVal("");
+  };
+
+  const handleKeyDown = (e) => {
+    if ((e.key === "Enter" || e.key === ",") && inputVal.trim()) {
+      e.preventDefault();
+      addLabel(inputVal);
+    }
+  };
+
   return (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {shown.map(t => {
-        const active = selected.includes(t.id);
-        return (
-          <button key={t.id} className="fk-tag" onClick={() => {
-            onChange(active ? selected.filter(x => x !== t.id) : [...selected, t.id]);
-          }} style={{
-            padding: "6px 12px", borderRadius: 20, fontSize: 12,
-            border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
-            background: active ? C.accentLight : "transparent",
-            color: active ? C.accent : C.textMuted, cursor: "pointer",
-            fontFamily: fonts, fontWeight: active ? 700 : 500, whiteSpace: "nowrap",
-          }}>{t.emoji} {t.label}</button>
-        );
-      })}
-      {!expanded && (
-        <button className="fk-tag" onClick={() => setExpanded(true)} style={{
-          padding: "6px 14px", borderRadius: 20, fontSize: 12,
-          border: `1px dashed ${C.border}`, background: "transparent",
-          color: C.textMuted, cursor: "pointer", fontFamily: fonts,
-        }}>+{TAGS.length - 8} more</button>
+    <div>
+      {selected.length > 0 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+          {selected.map((label, i) => (
+            <span key={i} style={{
+              padding: "5px 10px", borderRadius: 20, fontSize: 12,
+              background: C.accentLight, border: `1.5px solid ${C.accent}`,
+              color: C.accent, fontFamily: fonts, fontWeight: 600,
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}>
+              {label}
+              <button onClick={() => onChange(selected.filter(l => l !== label))} style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 13, color: C.accent, padding: 0, lineHeight: 1,
+              }}>×</button>
+            </span>
+          ))}
+        </div>
       )}
-      {expanded && (
-        <button className="fk-tag" onClick={() => setExpanded(false)} style={{
-          padding: "6px 14px", borderRadius: 20, fontSize: 12,
-          border: `1px dashed ${C.border}`, background: "transparent",
-          color: C.textMuted, cursor: "pointer", fontFamily: fonts,
-        }}>Show less</button>
+      {available.length > 0 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+          {available.map((label, i) => (
+            <button key={i} className="fk-tag" onClick={() => addLabel(label)} style={{
+              padding: "5px 10px", borderRadius: 20, fontSize: 12,
+              border: `1px solid ${C.border}`, background: "transparent",
+              color: C.textMuted, cursor: "pointer", fontFamily: fonts,
+            }}>{label}</button>
+          ))}
+        </div>
       )}
+      <input
+        value={inputVal}
+        onChange={e => setInputVal(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Type a label and press Enter…"
+        className="fk-input"
+        style={{
+          width: "100%", padding: "9px 14px", borderRadius: 12,
+          border: `1.5px solid ${C.border}`, background: C.cardAlt,
+          fontSize: 13, fontFamily: fonts, color: C.text, outline: "none",
+          boxSizing: "border-box", transition: "border-color 0.15s, box-shadow 0.15s",
+        }}
+      />
     </div>
   );
 }
 
-function NewIdeaForm({ currentUser, onSubmit, onCancel, isFavorite, onToggleFav }) {
+function NewIdeaForm({ currentUser, onSubmit, onCancel, isFavorite, onToggleFav, allLabels }) {
   const [dish, setDish] = useState("");
   const [tags, setTags] = useState([]);
   const [recipe, setRecipe] = useState(null);
@@ -913,8 +978,8 @@ function NewIdeaForm({ currentUser, onSubmit, onCancel, isFavorite, onToggleFav 
       <div style={{
         fontSize: 11, fontWeight: 700, color: C.textMuted, fontFamily: fonts,
         textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8,
-      }}>Tags</div>
-      <TagPicker selected={tags} onChange={setTags} />
+      }}>Labels</div>
+      <LabelInput selected={tags} onChange={setTags} allLabels={allLabels || []} />
       <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
         <button className="fk-btn" onClick={() => { if (dish.trim()) onSubmit({ dish: dish.trim(), tags, recipe }); }} style={{
           flex: 1, padding: "13px", borderRadius: 14, border: "none",
@@ -957,7 +1022,7 @@ function Slider({ value, onChange, label, color, icon }) {
   );
 }
 
-function MealForm({ currentUser, onSubmit, onCancel, initial }) {
+function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
   const [dish, setDish] = useState(initial?.dish || "");
   const [date, setDate] = useState(initial?.date || dateKey(new Date()));
   const [cook, setCook] = useState(initial?.cook || currentUser);
@@ -1003,9 +1068,9 @@ function MealForm({ currentUser, onSubmit, onCancel, initial }) {
       <div style={{
         fontSize: 11, fontWeight: 700, color: C.textMuted, fontFamily: fonts,
         textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8,
-      }}>Tags</div>
+      }}>Labels</div>
       <div style={{ marginBottom: 16 }}>
-        <TagPicker selected={tags} onChange={setTags} />
+        <LabelInput selected={tags} onChange={setTags} allLabels={allLabels || []} />
       </div>
 
       <Slider value={tastiness} onChange={setTastiness} label="Tastiness" color={C.accent} icon="😋" />
@@ -1065,15 +1130,12 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
           </div>
           {meal.tags?.length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>
-              {meal.tags.slice(0, 4).map(tid => {
-                const t = TAGS.find(x => x.id === tid);
-                return t ? (
-                  <span key={tid} style={{
-                    fontSize: 10, padding: "2px 7px", borderRadius: 10,
-                    background: C.cardAlt, color: C.textMuted, fontFamily: fonts,
-                  }}>{t.emoji} {t.label}</span>
-                ) : null;
-              })}
+              {meal.tags.slice(0, 4).map((label, i) => (
+                <span key={i} style={{
+                  fontSize: 10, padding: "2px 7px", borderRadius: 10,
+                  background: C.cardAlt, color: C.textMuted, fontFamily: fonts,
+                }}>{label}</span>
+              ))}
               {meal.tags.length > 4 && (
                 <span style={{ fontSize: 10, color: C.textLight, fontFamily: fonts }}>+{meal.tags.length - 4}</span>
               )}
@@ -1405,6 +1467,113 @@ function RecipePickerModal({ currentUser, isFavorite, onToggleFav, onPick, onClo
   );
 }
 
+// ─── Shopping ────────────────────────────────────────────────────
+
+function ShoppingItemRow({ item, currentUser, onMarkBought, onUnmarkBought, onDelete, delay }) {
+  const bought = !!item.bought_at;
+  return (
+    <div className="fk-card" style={{
+      background: C.card, borderRadius: 16, padding: "12px 16px",
+      border: `1px solid ${bought ? C.borderLight : C.border}`,
+      marginBottom: 8, display: "flex", alignItems: "center", gap: 12,
+      opacity: bought ? 0.65 : 1,
+      animation: `fk-fadeUp 0.4s ease ${delay || 0}s both`,
+    }}>
+      <button onClick={() => bought ? onUnmarkBought(item.id) : onMarkBought(item.id, currentUser)}
+        style={{
+          width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+          border: `2px solid ${bought ? C.green : C.border}`,
+          background: bought ? C.greenLight : "transparent",
+          cursor: "pointer", display: "flex", alignItems: "center",
+          justifyContent: "center", fontSize: 14, color: C.green,
+        }}>
+        {bought ? "✓" : ""}
+      </button>
+      <div style={{ flex: 1 }}>
+        <div style={{
+          fontSize: 15, fontFamily: fonts,
+          textDecoration: bought ? "line-through" : "none",
+          color: bought ? C.textMuted : C.text,
+        }}>{item.text}</div>
+        <div style={{ fontSize: 11, color: C.textLight, fontFamily: fonts, marginTop: 2 }}>
+          {bought ? `Bought by ${item.bought_by}` : `Added by ${item.added_by}`}
+        </div>
+      </div>
+      <button onClick={() => onDelete(item.id)} style={{
+        background: "none", border: "none", cursor: "pointer",
+        fontSize: 14, color: C.textLight, padding: 4,
+      }}>✕</button>
+    </div>
+  );
+}
+
+function ShoppingTab({ currentUser, items, onAdd, onMarkBought, onUnmarkBought, onDelete }) {
+  const [newItem, setNewItem] = useState("");
+
+  const pending = items.filter(i => !i.bought_at);
+  const bought = items.filter(i => !!i.bought_at);
+
+  const handleAdd = () => {
+    const t = newItem.trim();
+    if (!t) return;
+    onAdd(t, currentUser);
+    setNewItem("");
+  };
+
+  return (
+    <div style={{ padding: "12px 16px 28px" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <input value={newItem} onChange={e => setNewItem(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+          placeholder="Add item…" className="fk-input"
+          style={{
+            flex: 1, padding: "13px 16px", borderRadius: 14,
+            border: `1.5px solid ${C.border}`, background: C.cardAlt,
+            fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
+            transition: "border-color 0.15s, box-shadow 0.15s",
+          }} />
+        <button className="fk-btn" onClick={handleAdd} style={{
+          padding: "13px 20px", borderRadius: 14, border: "none",
+          background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+          color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: fonts,
+          cursor: "pointer", boxShadow: `0 4px 16px ${C.accent}33`,
+        }}>+</button>
+      </div>
+
+      {pending.length === 0 && bought.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🛒</div>
+          <div style={{ fontSize: 18, fontFamily: displayFont, color: C.textMuted, fontStyle: "italic" }}>
+            Shopping list is empty
+          </div>
+          <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>Add the first item above</div>
+        </div>
+      )}
+
+      {pending.map((item, i) => (
+        <ShoppingItemRow key={item.id} item={item} currentUser={currentUser}
+          onMarkBought={onMarkBought} onUnmarkBought={onUnmarkBought} onDelete={onDelete}
+          delay={i * 0.04} />
+      ))}
+
+      {bought.length > 0 && (
+        <>
+          <div style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+            letterSpacing: "0.12em", color: C.textMuted, fontFamily: fonts,
+            marginTop: 20, marginBottom: 10,
+          }}>Bought ({bought.length})</div>
+          {bought.map((item, i) => (
+            <ShoppingItemRow key={item.id} item={item} currentUser={currentUser}
+              onMarkBought={onMarkBought} onUnmarkBought={onUnmarkBought} onDelete={onDelete}
+              delay={i * 0.04} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main App ────────────────────────────────────────────────────
 export default function FlatKitchen() {
   const [currentUser, setCurrentUser] = useLocalStore("fk_user3", null);
@@ -1413,12 +1582,14 @@ export default function FlatKitchen() {
   const [showIdeaForm, setShowIdeaForm] = useState(false);
   const [showMealForm, setShowMealForm] = useState(false);
   const [editMeal, setEditMeal] = useState(null);
-  const [filterTag, setFilterTag] = useState(null);
+  const [mealSearch, setMealSearch] = useState("");
+  const [cookbookSubTab, setCookbookSubTab] = useState("meals");
 
   const { attendance, toggleAttendance } = useAttendance();
   const { ideas, addIdea, likeIdea, commentIdea, deleteComment, deleteIdea } = useIdeas();
   const { meals, addMeal, updateMeal, deleteMeal } = useMeals();
   const { favorites, addFavorite, removeFavorite, isFavorite, findFavorite } = useFavorites();
+  const { items: shoppingItems, addItem: addShoppingItem, markBought, unmarkBought, deleteItem: deleteShoppingItem } = useShopping();
 
   if (!currentUser) return <FlatmatePicker onSelect={setCurrentUser} />;
 
@@ -1458,8 +1629,13 @@ export default function FlatKitchen() {
     setEditMeal(null);
   };
 
-  const filteredMeals = filterTag ? meals.filter(m => m.tags?.includes(filterTag)) : meals;
-  const sortedMeals = [...filteredMeals].sort((a, b) => b.date.localeCompare(a.date));
+  const allLabels = [...new Set([
+    ...meals.flatMap(m => m.tags || []),
+    ...Object.values(ideas).flat().flatMap(i => i.tags || []),
+  ])];
+  const sortedMeals = [...meals]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .filter(m => !mealSearch.trim() || m.dish.toLowerCase().includes(mealSearch.trim().toLowerCase()));
 
   const { weekday, day, month } = formatDay(selectedDate);
   const today = isToday(selectedDate);
@@ -1519,7 +1695,7 @@ export default function FlatKitchen() {
           {[
             { id: "today", label: "Today", icon: "📅" },
             { id: "cookbook", label: "Cookbook", icon: "📖" },
-            { id: "recipes", label: "Recipes", icon: "📚" },
+            { id: "shopping", label: "Shopping", icon: "🛒" },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               flex: 1, padding: "10px 0", border: "none", borderRadius: 11,
@@ -1577,7 +1753,8 @@ export default function FlatKitchen() {
               {showIdeaForm && (
                 <NewIdeaForm currentUser={currentUser} onSubmit={handleAddIdea}
                   onCancel={() => setShowIdeaForm(false)}
-                  isFavorite={isFavorite} onToggleFav={handleToggleFav} />
+                  isFavorite={isFavorite} onToggleFav={handleToggleFav}
+                  allLabels={allLabels} />
               )}
 
               {dayIdeas.length === 0 && !showIdeaForm && (
@@ -1610,80 +1787,88 @@ export default function FlatKitchen() {
           <div style={{ padding: "12px 16px 28px" }}>
             <Stats meals={meals} />
 
-            {showMealForm ? (
-              <MealForm currentUser={currentUser} onSubmit={submitMeal}
-                onCancel={() => { setShowMealForm(false); setEditMeal(null); }} initial={editMeal} />
-            ) : (
+            {/* Sub-tab switcher */}
+            <div style={{ display: "flex", gap: 5, marginBottom: 16 }}>
+              {[{ id: "meals", label: "🍽 Meals" }, { id: "recipes", label: "📚 Recipes" }].map(st => {
+                const active = cookbookSubTab === st.id;
+                return (
+                  <button key={st.id} className="fk-tag" onClick={() => setCookbookSubTab(st.id)} style={{
+                    padding: "7px 16px", borderRadius: 20, fontSize: 13, whiteSpace: "nowrap",
+                    border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
+                    background: active ? C.accentLight : "transparent",
+                    color: active ? C.accent : C.textMuted,
+                    cursor: "pointer", fontFamily: fonts, fontWeight: active ? 700 : 500,
+                  }}>{st.label}</button>
+                );
+              })}
+            </div>
+
+            {cookbookSubTab === "meals" && (
               <>
-                <button className="fk-btn" onClick={() => setShowMealForm(true)} style={{
-                  width: "100%", padding: "14px", borderRadius: 16, border: "none",
-                  background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
-                  color: "#fff", fontSize: 15, fontWeight: 700,
-                  fontFamily: fonts, cursor: "pointer", marginBottom: 16,
-                  boxShadow: `0 6px 20px ${C.accent}30`,
-                }}>+ Log a Meal</button>
-
-                {meals.length > 0 && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{
-                      display: "flex", gap: 5, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none",
-                    }}>
-                      <button className="fk-tag" onClick={() => setFilterTag(null)} style={{
-                        padding: "5px 12px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
-                        border: !filterTag ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
-                        background: !filterTag ? C.accentLight : "transparent",
-                        color: !filterTag ? C.accent : C.textMuted,
-                        cursor: "pointer", fontFamily: fonts, fontWeight: !filterTag ? 700 : 500,
-                      }}>All</button>
-                      {[...new Set(meals.flatMap(m => m.tags || []))].map(tid => {
-                        const t = TAGS.find(x => x.id === tid);
-                        if (!t) return null;
-                        const active = filterTag === tid;
-                        return (
-                          <button key={tid} className="fk-tag" onClick={() => setFilterTag(active ? null : tid)} style={{
-                            padding: "5px 12px", borderRadius: 20, fontSize: 11, whiteSpace: "nowrap",
-                            border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
-                            background: active ? C.accentLight : "transparent",
-                            color: active ? C.accent : C.textMuted,
-                            cursor: "pointer", fontFamily: fonts, fontWeight: active ? 700 : 500,
-                          }}>{t.emoji} {t.label}</button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {sortedMeals.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
-                    <div style={{ fontSize: 40, marginBottom: 10 }}>🍳</div>
-                    <div style={{
-                      fontSize: 18, fontFamily: displayFont, fontWeight: 400,
-                      color: C.textMuted, fontStyle: "italic",
-                    }}>{filterTag ? "No meals with this tag" : "No meals yet"}</div>
-                    <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>
-                      {filterTag ? "Try a different filter" : "Cook something and log it!"}
-                    </div>
-                  </div>
+                {showMealForm ? (
+                  <MealForm currentUser={currentUser} onSubmit={submitMeal}
+                    onCancel={() => { setShowMealForm(false); setEditMeal(null); }}
+                    initial={editMeal} allLabels={allLabels} />
                 ) : (
-                  sortedMeals.map((m, i) => (
-                    <MealCard key={m.id} meal={m} delay={i * 0.05}
-                      onEdit={m => { setEditMeal(m); setShowMealForm(true); }}
-                      onDelete={deleteMeal} />
-                  ))
+                  <>
+                    <button className="fk-btn" onClick={() => setShowMealForm(true)} style={{
+                      width: "100%", padding: "14px", borderRadius: 16, border: "none",
+                      background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+                      color: "#fff", fontSize: 15, fontWeight: 700,
+                      fontFamily: fonts, cursor: "pointer", marginBottom: 12,
+                      boxShadow: `0 6px 20px ${C.accent}30`,
+                    }}>+ Log a Meal</button>
+
+                    <input value={mealSearch} onChange={e => setMealSearch(e.target.value)}
+                      placeholder="Search meals…" className="fk-input"
+                      style={{
+                        width: "100%", padding: "11px 16px", borderRadius: 14,
+                        border: `1.5px solid ${C.border}`, background: C.cardAlt,
+                        fontSize: 14, fontFamily: fonts, color: C.text, outline: "none",
+                        boxSizing: "border-box", marginBottom: 14,
+                        transition: "border-color 0.15s, box-shadow 0.15s",
+                      }} />
+
+                    {sortedMeals.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
+                        <div style={{ fontSize: 40, marginBottom: 10 }}>🍳</div>
+                        <div style={{
+                          fontSize: 18, fontFamily: displayFont, fontWeight: 400,
+                          color: C.textMuted, fontStyle: "italic",
+                        }}>{mealSearch ? "No meals match your search" : "No meals yet"}</div>
+                        <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>
+                          {mealSearch ? "Try a different search" : "Cook something and log it!"}
+                        </div>
+                      </div>
+                    ) : (
+                      sortedMeals.map((m, i) => (
+                        <MealCard key={m.id} meal={m} delay={i * 0.05}
+                          onEdit={m => { setEditMeal(m); setShowMealForm(true); }}
+                          onDelete={deleteMeal} />
+                      ))
+                    )}
+                  </>
                 )}
               </>
+            )}
+
+            {cookbookSubTab === "recipes" && (
+              <RecipesTab currentUser={currentUser}
+                favorites={favorites}
+                isFavorite={isFavorite}
+                onToggleFav={handleToggleFav} />
             )}
           </div>
         )}
 
-        {/* ─── RECIPES TAB ─── */}
-        {tab === "recipes" && (
-          <div style={{ padding: "12px 16px 28px" }}>
-            <RecipesTab currentUser={currentUser}
-              favorites={favorites}
-              isFavorite={isFavorite}
-              onToggleFav={handleToggleFav} />
-          </div>
+        {/* ─── SHOPPING TAB ─── */}
+        {tab === "shopping" && (
+          <ShoppingTab currentUser={currentUser}
+            items={shoppingItems}
+            onAdd={addShoppingItem}
+            onMarkBought={markBought}
+            onUnmarkBought={unmarkBought}
+            onDelete={deleteShoppingItem} />
         )}
       </div>
     </div>
