@@ -278,6 +278,9 @@ function useMeals() {
     const { data } = await supabase.from("meals").select("*").order("created_at", { ascending: false });
     setMeals((data || []).map(m => ({
       ...m, cost: parseFloat(m.cost) || 0, tags: m.tags || [],
+      recipe_url: m.recipe_url || null,
+      recipe_image: m.recipe_image || null,
+      recipe_title: m.recipe_title || null,
     })));
   }, []);
 
@@ -1010,7 +1013,7 @@ function Slider({ value, onChange, label, color, icon }) {
   );
 }
 
-function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
+function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels, isFavorite, onToggleFav }) {
   const [dish, setDish] = useState(initial?.dish || "");
   const [date, setDate] = useState(initial?.date || dateKey(new Date()));
   const [cook, setCook] = useState(initial?.cook || currentUser);
@@ -1019,6 +1022,10 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
   const [cost, setCost] = useState(initial?.cost || 5);
   const [comment, setComment] = useState(initial?.comment || "");
   const [tags, setTags] = useState(initial?.tags || []);
+  const [recipe, setRecipe] = useState(
+    initial?.recipe_url ? { url: initial.recipe_url, image: initial.recipe_image, title: initial.recipe_title } : null
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <div style={{
@@ -1034,11 +1041,45 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
       <input value={dish} onChange={e => setDish(e.target.value)} placeholder="What did you cook?"
         className="fk-input"
         style={{
-          width: "100%", padding: "13px 16px", borderRadius: 14, marginBottom: 14,
+          width: "100%", padding: "13px 16px", borderRadius: 14, marginBottom: 12,
           border: `1.5px solid ${C.border}`, background: C.cardAlt,
           fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
           boxSizing: "border-box", transition: "border-color 0.15s, box-shadow 0.15s",
         }} />
+
+      {recipe ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+          background: C.accentLight, borderRadius: 12,
+          border: `1px solid ${C.accent}30`, marginBottom: 14,
+        }}>
+          {recipe.image && (
+            <img src={recipe.image} alt="" style={{
+              width: 36, height: 36, borderRadius: 8, objectFit: "cover", flexShrink: 0,
+            }} />
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, fontFamily: fonts, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Chefkoch recipe
+            </div>
+            <div style={{
+              fontSize: 13, color: C.text, fontFamily: fonts, fontWeight: 600,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>{recipe.title}</div>
+          </div>
+          <button className="fk-btn" onClick={() => setRecipe(null)} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 14, color: C.textMuted, fontFamily: fonts, padding: 4,
+          }}>✕</button>
+        </div>
+      ) : (
+        <button className="fk-btn" type="button" onClick={() => setPickerOpen(true)} style={{
+          width: "100%", padding: "10px 14px", borderRadius: 12,
+          border: `1.5px dashed ${C.border}`, background: "transparent",
+          color: C.textMuted, fontSize: 13, fontWeight: 600,
+          fontFamily: fonts, cursor: "pointer", marginBottom: 14,
+        }}>🔍 Link Chefkoch recipe (optional)</button>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         <div>
@@ -1079,6 +1120,9 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
           onSubmit({
             id: initial?.id, dish: dish.trim(), date, cook,
             tastiness, effort, cost, comment: comment.trim(), tags,
+            recipe_url: recipe?.url || null,
+            recipe_image: recipe?.image || null,
+            recipe_title: recipe?.title || null,
           });
         }} style={{
           flex: 1, padding: "14px", borderRadius: 14, border: "none",
@@ -1092,6 +1136,13 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
           fontFamily: fonts, cursor: "pointer",
         }}>Cancel</button>
       </div>
+
+      {pickerOpen && (
+        <RecipePickerModal currentUser={currentUser}
+          isFavorite={isFavorite} onToggleFav={onToggleFav}
+          onPick={(r) => { setRecipe(r); if (!dish.trim()) setDish(r.title || ""); }}
+          onClose={() => setPickerOpen(false)} />
+      )}
     </div>
   );
 }
@@ -1145,6 +1196,24 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
             padding: "10px 14px", background: C.cardAlt, borderRadius: 12,
             borderLeft: `3px solid ${C.accent}30`,
           }}>"{meal.comment}"</p>}
+          {meal.recipe_url && (
+            <a href={meal.recipe_url} target="_blank" rel="noopener noreferrer" style={{
+              display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 12,
+              padding: "6px 10px", borderRadius: 10,
+              background: C.accentLight, border: `1px solid ${C.accent}25`,
+              color: C.accent, fontSize: 12, fontWeight: 600, fontFamily: fonts,
+              textDecoration: "none", maxWidth: "100%",
+            }}>
+              {meal.recipe_image && (
+                <img src={meal.recipe_image} alt="" style={{
+                  width: 22, height: 22, borderRadius: 6, objectFit: "cover", flexShrink: 0,
+                }} />
+              )}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                📖 {meal.recipe_title || "View on Chefkoch"} ↗
+              </span>
+            </a>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button className="fk-btn" onClick={() => onEdit(meal)} style={smallBtn}>Edit</button>
             <button className="fk-btn" onClick={() => onDelete(meal.id)} style={{ ...smallBtn, color: C.accent, borderColor: C.accent }}>Delete</button>
@@ -1790,7 +1859,8 @@ export default function FlatKitchen() {
                 {showMealForm ? (
                   <MealForm currentUser={currentUser} onSubmit={submitMeal}
                     onCancel={() => { setShowMealForm(false); setEditMeal(null); }}
-                    initial={editMeal} allLabels={allLabels} />
+                    initial={editMeal} allLabels={allLabels}
+                    isFavorite={isFavorite} onToggleFav={handleToggleFav} />
                 ) : (
                   <>
                     <button className="fk-btn" onClick={() => setShowMealForm(true)} style={{
