@@ -433,6 +433,45 @@ function useShopping() {
   return { items, addItem, markBought, unmarkBought, deleteItem };
 }
 
+function useExpenses() {
+  const [expenses, setExpenses] = useState([]);
+
+  const fetchAll = useCallback(async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from("expenses").select("*").order("created_at", { ascending: false });
+    setExpenses((data || []).map(e => ({ ...e, amount: parseFloat(e.amount) || 0 })));
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    fetchAll();
+    const channel = supabase.channel("expenses-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, fetchAll)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchAll]);
+
+  const addExpense = useCallback(async (amount, paidBy, description) => {
+    if (!supabase) return;
+    const tempId = `temp-${Date.now()}`;
+    setExpenses(prev => [{ id: tempId, amount, paid_by: paidBy, description, created_at: new Date().toISOString() }, ...prev]);
+    const { data, error } = await supabase.from("expenses").insert({ amount, paid_by: paidBy, description }).select().single();
+    if (error) {
+      console.error("[expenses] insert failed:", error);
+      setExpenses(prev => prev.filter(e => e.id !== tempId));
+    } else {
+      setExpenses(prev => prev.map(e => e.id === tempId ? { ...data, amount: parseFloat(data.amount) || 0 } : e));
+    }
+  }, []);
+
+  const deleteExpense = useCallback(async (id) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    if (supabase) await supabase.from("expenses").delete().eq("id", id);
+  }, []);
+
+  return { expenses, addExpense, deleteExpense };
+}
+
 function useChefkochSearch() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1560,7 +1599,187 @@ function ShoppingItemRow({ item, currentUser, onMarkBought, onUnmarkBought, onDe
   );
 }
 
-function ShoppingTab({ currentUser, items, onAdd, onMarkBought, onUnmarkBought, onDelete }) {
+function settleDebts(expenses) {
+  const n = FLATMATES.length;
+  const balances = {};
+  FLATMATES.forEach(f => { balances[f.name] = 0; });
+  expenses.forEach(e => {
+    const share = e.amount / n;
+    balances[e.paid_by] = (balances[e.paid_by] || 0) + e.amount;
+    FLATMATES.forEach(f => { balances[f.name] -= share; });
+  });
+
+  const debtors = FLATMATES.filter(f => balances[f.name] < -0.01).map(f => ({ name: f.name, amount: -balances[f.name] }));
+  const creditors = FLATMATES.filter(f => balances[f.name] > 0.01).map(f => ({ name: f.name, amount: balances[f.name] }));
+  debtors.sort((a, b) => b.amount - a.amount);
+  creditors.sort((a, b) => b.amount - a.amount);
+
+  const transactions = [];
+  let i = 0, j = 0;
+  const d = debtors.map(x => ({ ...x }));
+  const c = creditors.map(x => ({ ...x }));
+  while (i < d.length && j < c.length) {
+    const amt = Math.min(d[i].amount, c[j].amount);
+    transactions.push({ from: d[i].name, to: c[j].name, amount: amt });
+    d[i].amount -= amt;
+    c[j].amount -= amt;
+    if (d[i].amount < 0.01) i++;
+    if (c[j].amount < 0.01) j++;
+  }
+  return { balances, transactions };
+}
+
+function ExpensesTab({ currentUser, expenses, onAdd, onDelete }) {
+  const [amount, setAmount] = useState("");
+  const [paidBy, setPaidBy] = useState(currentUser);
+  const [description, setDescription] = useState("");
+
+  const handleAdd = () => {
+    const a = parseFloat(amount);
+    if (!a || a <= 0) return;
+    onAdd(a, paidBy, description.trim());
+    setAmount("");
+    setDescription("");
+  };
+
+  const { transactions } = settleDebts(expenses);
+  const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
+
+  return (
+    <div>
+      {/* Add expense form */}
+      <div style={{
+        background: C.card, borderRadius: 18, padding: 16,
+        border: `1px solid ${C.border}`, marginBottom: 16,
+        boxShadow: "0 2px 8px rgba(28,23,20,0.04)",
+      }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input value={amount} onChange={e => setAmount(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+            type="number" step="0.01" min="0" placeholder="Amount (€)" className="fk-input"
+            style={{
+              flex: 1, padding: "11px 14px", borderRadius: 12,
+              border: `1.5px solid ${C.border}`, background: C.cardAlt,
+              fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }} />
+          <select value={paidBy} onChange={e => setPaidBy(e.target.value)} className="fk-input"
+            style={{
+              padding: "11px 12px", borderRadius: 12,
+              border: `1.5px solid ${C.border}`, background: C.cardAlt,
+              fontSize: 14, fontFamily: fonts, color: C.text, outline: "none",
+            }}>
+            {FLATMATES.map(f => <option key={f.name} value={f.name}>{f.emoji} {f.name}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={description} onChange={e => setDescription(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+            placeholder="What was bought? (optional)" className="fk-input"
+            style={{
+              flex: 1, padding: "11px 14px", borderRadius: 12,
+              border: `1.5px solid ${C.border}`, background: C.cardAlt,
+              fontSize: 14, fontFamily: fonts, color: C.text, outline: "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }} />
+          <button className="fk-btn" onClick={handleAdd} style={{
+            padding: "11px 18px", borderRadius: 12, border: "none",
+            background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+            color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: fonts,
+            cursor: "pointer", boxShadow: `0 4px 16px ${C.accent}33`,
+          }}>+</button>
+        </div>
+      </div>
+
+      {/* Settlement summary */}
+      {expenses.length > 0 && (
+        <div style={{
+          background: `linear-gradient(145deg, ${C.dark} 0%, #342B20 100%)`,
+          borderRadius: 18, padding: 16, marginBottom: 16,
+          boxShadow: "0 4px 16px rgba(28,23,20,0.15)",
+        }}>
+          <div style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+            letterSpacing: "0.12em", color: C.textLight, fontFamily: fonts, marginBottom: 12,
+          }}>Who owes whom</div>
+          {transactions.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.textLight, fontFamily: fonts, fontStyle: "italic" }}>
+              Everyone is settled up ✓
+            </div>
+          ) : (
+            transactions.map((t, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 8, marginBottom: i < transactions.length - 1 ? 8 : 0,
+              }}>
+                <span style={{ fontSize: 13, color: "#fff", fontFamily: fonts }}>
+                  <span style={{ fontWeight: 700 }}>{t.from}</span>
+                  <span style={{ color: C.textLight }}> owes </span>
+                  <span style={{ fontWeight: 700 }}>{t.to}</span>
+                </span>
+                <span style={{
+                  marginLeft: "auto", fontSize: 16, fontWeight: 400,
+                  fontFamily: displayFont, fontStyle: "italic", color: C.accentLight,
+                }}>€{t.amount.toFixed(2)}</span>
+              </div>
+            ))
+          )}
+          <div style={{
+            marginTop: 12, paddingTop: 12, borderTop: "1px solid #ffffff10",
+            fontSize: 11, color: C.textLight, fontFamily: fonts,
+          }}>Total spent: €{totalSpent.toFixed(2)}</div>
+        </div>
+      )}
+
+      {/* Expense history */}
+      {expenses.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>💶</div>
+          <div style={{ fontSize: 18, fontFamily: displayFont, color: C.textMuted, fontStyle: "italic" }}>No expenses yet</div>
+          <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>Add the first expense above</div>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+            letterSpacing: "0.12em", color: C.textMuted, fontFamily: fonts, marginBottom: 10,
+          }}>History</div>
+          {expenses.map((e, i) => {
+            const fm = FLATMATES.find(f => f.name === e.paid_by);
+            return (
+              <div key={e.id} className="fk-card" style={{
+                background: C.card, borderRadius: 14, padding: "12px 14px",
+                border: `1px solid ${C.border}`, marginBottom: 8,
+                display: "flex", alignItems: "center", gap: 10,
+                animation: `fk-fadeUp 0.4s ease ${i * 0.04}s both`,
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: 18, fontWeight: 400, fontFamily: displayFont, fontStyle: "italic", color: C.text }}>
+                      €{e.amount.toFixed(2)}
+                    </span>
+                    <span style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts }}>
+                      paid by <span style={{ fontWeight: 700, color: C.text }}>{fm?.emoji} {e.paid_by}</span>
+                    </span>
+                  </div>
+                  {e.description && (
+                    <div style={{ fontSize: 12, color: C.textLight, fontFamily: fonts, marginTop: 2 }}>{e.description}</div>
+                  )}
+                </div>
+                <button onClick={() => onDelete(e.id)} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: 14, color: C.textLight, padding: 4,
+                }}>✕</button>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ShoppingTab({ currentUser, items, onAdd, onMarkBought, onUnmarkBought, onDelete, expenses, onAddExpense, onDeleteExpense }) {
+  const [subTab, setSubTab] = useState("list");
   const [newItem, setNewItem] = useState("");
 
   const pending = items.filter(i => !i.bought_at);
@@ -1575,53 +1794,78 @@ function ShoppingTab({ currentUser, items, onAdd, onMarkBought, onUnmarkBought, 
 
   return (
     <div style={{ padding: "12px 16px 28px" }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <input value={newItem} onChange={e => setNewItem(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
-          placeholder="Add item…" className="fk-input"
-          style={{
-            flex: 1, padding: "13px 16px", borderRadius: 14,
-            border: `1.5px solid ${C.border}`, background: C.cardAlt,
-            fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
-            transition: "border-color 0.15s, box-shadow 0.15s",
-          }} />
-        <button className="fk-btn" onClick={handleAdd} style={{
-          padding: "13px 20px", borderRadius: 14, border: "none",
-          background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
-          color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: fonts,
-          cursor: "pointer", boxShadow: `0 4px 16px ${C.accent}33`,
-        }}>+</button>
+      {/* Sub-tab switcher */}
+      <div style={{ display: "flex", gap: 5, marginBottom: 16 }}>
+        {[{ id: "list", label: "🛒 List" }, { id: "expenses", label: "💶 Expenses" }].map(st => {
+          const active = subTab === st.id;
+          return (
+            <button key={st.id} className="fk-tag" onClick={() => setSubTab(st.id)} style={{
+              padding: "7px 16px", borderRadius: 20, fontSize: 13, whiteSpace: "nowrap",
+              border: active ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
+              background: active ? C.accentLight : "transparent",
+              color: active ? C.accent : C.textMuted,
+              cursor: "pointer", fontFamily: fonts, fontWeight: active ? 700 : 500,
+            }}>{st.label}</button>
+          );
+        })}
       </div>
 
-      {pending.length === 0 && bought.length === 0 && (
-        <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
-          <div style={{ fontSize: 40, marginBottom: 10 }}>🛒</div>
-          <div style={{ fontSize: 18, fontFamily: displayFont, color: C.textMuted, fontStyle: "italic" }}>
-            Shopping list is empty
-          </div>
-          <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>Add the first item above</div>
-        </div>
-      )}
-
-      {pending.map((item, i) => (
-        <ShoppingItemRow key={item.id} item={item} currentUser={currentUser}
-          onMarkBought={onMarkBought} onUnmarkBought={onUnmarkBought} onDelete={onDelete}
-          delay={i * 0.04} />
-      ))}
-
-      {bought.length > 0 && (
+      {subTab === "list" && (
         <>
-          <div style={{
-            fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-            letterSpacing: "0.12em", color: C.textMuted, fontFamily: fonts,
-            marginTop: 20, marginBottom: 10,
-          }}>Bought ({bought.length})</div>
-          {bought.map((item, i) => (
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input value={newItem} onChange={e => setNewItem(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+              placeholder="Add item…" className="fk-input"
+              style={{
+                flex: 1, padding: "13px 16px", borderRadius: 14,
+                border: `1.5px solid ${C.border}`, background: C.cardAlt,
+                fontSize: 15, fontFamily: fonts, color: C.text, outline: "none",
+                transition: "border-color 0.15s, box-shadow 0.15s",
+              }} />
+            <button className="fk-btn" onClick={handleAdd} style={{
+              padding: "13px 20px", borderRadius: 14, border: "none",
+              background: `linear-gradient(135deg, ${C.accent}, #D4593F)`,
+              color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: fonts,
+              cursor: "pointer", boxShadow: `0 4px 16px ${C.accent}33`,
+            }}>+</button>
+          </div>
+
+          {pending.length === 0 && bought.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px 24px", color: C.textLight, animation: "fk-fadeUp 0.5s ease" }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>🛒</div>
+              <div style={{ fontSize: 18, fontFamily: displayFont, color: C.textMuted, fontStyle: "italic" }}>
+                Shopping list is empty
+              </div>
+              <div style={{ fontSize: 13, marginTop: 6, color: C.textLight }}>Add the first item above</div>
+            </div>
+          )}
+
+          {pending.map((item, i) => (
             <ShoppingItemRow key={item.id} item={item} currentUser={currentUser}
               onMarkBought={onMarkBought} onUnmarkBought={onUnmarkBought} onDelete={onDelete}
               delay={i * 0.04} />
           ))}
+
+          {bought.length > 0 && (
+            <>
+              <div style={{
+                fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.12em", color: C.textMuted, fontFamily: fonts,
+                marginTop: 20, marginBottom: 10,
+              }}>Bought ({bought.length})</div>
+              {bought.map((item, i) => (
+                <ShoppingItemRow key={item.id} item={item} currentUser={currentUser}
+                  onMarkBought={onMarkBought} onUnmarkBought={onUnmarkBought} onDelete={onDelete}
+                  delay={i * 0.04} />
+              ))}
+            </>
+          )}
         </>
+      )}
+
+      {subTab === "expenses" && (
+        <ExpensesTab currentUser={currentUser}
+          expenses={expenses} onAdd={onAddExpense} onDelete={onDeleteExpense} />
       )}
     </div>
   );
@@ -1643,6 +1887,7 @@ export default function FlatKitchen() {
   const { meals, addMeal, updateMeal, deleteMeal } = useMeals();
   const { favorites, addFavorite, removeFavorite, isFavorite, findFavorite } = useFavorites();
   const { items: shoppingItems, addItem: addShoppingItem, markBought, unmarkBought, deleteItem: deleteShoppingItem } = useShopping();
+  const { expenses, addExpense, deleteExpense } = useExpenses();
 
   if (!currentUser) return <FlatmatePicker onSelect={setCurrentUser} />;
 
@@ -1920,7 +2165,10 @@ export default function FlatKitchen() {
             onAdd={addShoppingItem}
             onMarkBought={markBought}
             onUnmarkBought={unmarkBought}
-            onDelete={deleteShoppingItem} />
+            onDelete={deleteShoppingItem}
+            expenses={expenses}
+            onAddExpense={addExpense}
+            onDeleteExpense={deleteExpense} />
         )}
       </div>
     </div>
