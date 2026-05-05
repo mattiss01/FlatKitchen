@@ -1,8 +1,8 @@
-// Posts Telegram messages to a group chat on new ideas, new comments, and shopping list events.
-// Triggered by Supabase Database Webhooks on the `ideas` and `shopping_items` tables.
+// Posts Telegram messages to a group chat on new ideas, new comments, shopping list, and expense events.
+// Triggered by Supabase Database Webhooks on the `ideas`, `shopping_items`, and `expenses` tables.
 // See ./README.md for setup.
 
-type Comment = { author: string; text: string };
+type IdeaComment = { author: string; text: string };
 
 type Idea = {
   id: string;
@@ -11,7 +11,7 @@ type Idea = {
   author: string;
   tags?: string[];
   likes?: string[];
-  comments?: Comment[];
+  comments?: IdeaComment[];
 };
 
 type ShoppingItem = {
@@ -22,11 +22,18 @@ type ShoppingItem = {
   bought_at: string | null;
 };
 
+type Expense = {
+  id: string;
+  amount: number;
+  paid_by: string;
+  description: string;
+};
+
 type WebhookPayload = {
   type: "INSERT" | "UPDATE" | "DELETE";
   table: string;
-  record: Idea | ShoppingItem;
-  old_record: Idea | ShoppingItem | null;
+  record: Idea | ShoppingItem | Expense;
+  old_record: Idea | ShoppingItem | Expense | null;
 };
 
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
@@ -95,6 +102,18 @@ function messageFor(payload: WebhookPayload): string | null {
         return `✅ ${esc(r.bought_by)} bought <b>${esc(r.text)}</b>${openLink}`;
       }
       return null;
+    }
+
+    return null;
+  }
+
+  // ─── expenses ────────────────────────────────────────────────────
+  if (payload.table === "expenses") {
+    const r = payload.record as Expense;
+
+    if (payload.type === "INSERT") {
+      const desc = r.description ? ` <i>(${esc(r.description)})</i>` : "";
+      return `💶 ${esc(r.paid_by)} paid <b>€${parseFloat(String(r.amount)).toFixed(2)}</b>${desc}${openLink}`;
     }
 
     return null;
