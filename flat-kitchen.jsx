@@ -15,18 +15,6 @@ const FLATMATES = [
   { name: "Jakob", emoji: "🦅" },
 ];
 
-const LEGACY_TAG_MAP = {
-  vegan: "Vegan", vegetarian: "Vegetarian", meat: "Meat", fish: "Fish",
-  pasta: "Pasta", rice: "Rice", soup: "Soup", salad: "Salad", curry: "Curry",
-  asian: "Asian", italian: "Italian", mexican: "Mexican", indian: "Indian",
-  middleeastern: "Middle Eastern", quick: "Quick (<30min)", mealprep: "Meal Prep",
-  comfort: "Comfort Food", healthy: "Healthy", spicy: "Spicy",
-  baking: "Baking", bbq: "BBQ", breakfast: "Breakfast", dessert: "Dessert",
-  budget: "Budget", fancy: "Fancy",
-};
-function normalizeTags(tags) {
-  return (tags || []).map(t => LEGACY_TAG_MAP[t] || t);
-}
 
 const ATTENDANCE = { HOME: "home", AWAY: "away", UNSURE: "unsure" };
 
@@ -80,7 +68,7 @@ function groupIdeas(rows) {
     if (!grouped[r.date]) grouped[r.date] = [];
     grouped[r.date].push({
       id: r.id, dish: r.dish, author: r.author,
-      tags: normalizeTags(r.tags), likes: r.likes || [], comments: r.comments || [],
+      tags: r.tags || [], likes: r.likes || [], comments: r.comments || [],
       recipe_url: r.recipe_url || null,
       recipe_image: r.recipe_image || null,
       recipe_title: r.recipe_title || null,
@@ -289,7 +277,7 @@ function useMeals() {
     if (!supabase) return;
     const { data } = await supabase.from("meals").select("*").order("created_at", { ascending: false });
     setMeals((data || []).map(m => ({
-      ...m, cost: parseFloat(m.cost) || 0, tags: normalizeTags(m.tags),
+      ...m, cost: parseFloat(m.cost) || 0, tags: m.tags || [],
     })));
   }, []);
 
@@ -1028,7 +1016,7 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
   const [cook, setCook] = useState(initial?.cook || currentUser);
   const [tastiness, setTastiness] = useState(initial?.tastiness || 7);
   const [effort, setEffort] = useState(initial?.effort || 5);
-  const [cost, setCost] = useState(initial?.cost?.toString() || "");
+  const [cost, setCost] = useState(initial?.cost || 5);
   const [comment, setComment] = useState(initial?.comment || "");
   const [tags, setTags] = useState(initial?.tags || []);
 
@@ -1076,11 +1064,7 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
       <Slider value={tastiness} onChange={setTastiness} label="Tastiness" color={C.accent} icon="😋" />
       <Slider value={effort} onChange={setEffort} label="Effort" color={C.green} icon="💪" />
 
-      <div style={{ marginBottom: 14 }}>
-        <label style={labelSt}>Cost (€)</label>
-        <input type="number" step="0.5" min="0" value={cost} onChange={e => setCost(e.target.value)}
-          placeholder="0.00" className="fk-input" style={fieldSt} />
-      </div>
+      <Slider value={cost} onChange={setCost} label="Cost" color="#7A6A3B" icon="💸" />
 
       <div style={{ marginBottom: 20 }}>
         <label style={labelSt}>Notes</label>
@@ -1094,7 +1078,7 @@ function MealForm({ currentUser, onSubmit, onCancel, initial, allLabels }) {
           if (!dish.trim()) return;
           onSubmit({
             id: initial?.id, dish: dish.trim(), date, cook,
-            tastiness, effort, cost: parseFloat(cost) || 0, comment: comment.trim(), tags,
+            tastiness, effort, cost, comment: comment.trim(), tags,
           });
         }} style={{
           flex: 1, padding: "14px", borderRadius: 14, border: "none",
@@ -1126,7 +1110,7 @@ function MealCard({ meal, onEdit, onDelete, delay }) {
           <div style={{ fontSize: 17, fontWeight: 400, color: C.text, fontFamily: displayFont, lineHeight: 1.3, fontStyle: "italic" }}>{meal.dish}</div>
           <div style={{ fontSize: 12, color: C.textMuted, fontFamily: fonts, marginTop: 3 }}>
             <span style={{ color: C.text, fontWeight: 600 }}>{meal.cook}</span>
-            {" · "}{meal.date}{meal.cost > 0 && ` · €${meal.cost.toFixed(2)}`}
+            {" · "}{meal.date}{meal.cost > 0 && ` · 💸${meal.cost}/10`}
           </div>
           {meal.tags?.length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>
@@ -1199,7 +1183,7 @@ function Stats({ meals }) {
         {[
           { l: "Meals", v: meals.length, i: "🍽" },
           { l: "Avg Taste", v: avg(meals, m => m.tastiness), i: "😋" },
-          { l: "Total €", v: `€${meals.reduce((s, m) => s + m.cost, 0).toFixed(0)}`, i: "💰" },
+          { l: "Avg Cost", v: avg(meals, m => m.cost), i: "💸" },
           { l: "Avg Effort", v: avg(meals, m => m.effort), i: "💪" },
         ].map(s => (
           <div key={s.l} style={{ position: "relative" }}>
