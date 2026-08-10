@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import FlatKitchen from '../flat-kitchen.jsx'
+import FlatKitchen from './App.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
