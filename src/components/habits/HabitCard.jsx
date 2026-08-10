@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { C, displayFont, fonts } from "../../lib/constants";
 import {
   HABIT_TYPES,
@@ -8,7 +9,11 @@ import {
   weeklyProgress,
 } from "../../lib/habits";
 
-export default function HabitCard({ habit, entry, entries, entryDate, disabled, onToggle, onToggleStep, delay = 0 }) {
+export default function HabitCard({
+  habit, entry, entries, entryDate, disabled,
+  onToggle, onToggleRoutine, onToggleStep, delay = 0,
+}) {
+  const [expanded, setExpanded] = useState(false);
   const steps = entry?.step_state?.length ? entry.step_state : routineSnapshot(habit);
   const completedSteps = steps.filter(step => step.completed).length;
   const progress = weeklyProgress(habit, entries, entryDate);
@@ -30,35 +35,49 @@ export default function HabitCard({ habit, entry, entries, entryDate, disabled, 
         right: -24, top: -32, background: complete ? `${C.green}12` : `${C.accent}08`,
       }} />
       <div style={{ display: "flex", gap: 13, alignItems: "flex-start", position: "relative" }}>
-        {!isRoutine && (
-          <button type="button" onClick={onToggle} disabled={disabled} aria-label={`${complete ? "Unmark" : "Complete"} ${habit.title}`}
+        <button type="button" onClick={isRoutine ? onToggleRoutine : onToggle} disabled={disabled}
+          aria-label={`${complete ? "Reopen" : "Complete"} ${habit.title}${isRoutine ? " and all its steps" : ""}`}
             aria-pressed={complete} style={checkButton(complete, disabled)}>
             {complete ? "✓" : ""}
-          </button>
-        )}
+        </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
             <div>
               <h3 style={{
                 margin: 0, color: C.text, fontFamily: displayFont, fontWeight: 400,
                 fontSize: 23, lineHeight: 1.05, fontStyle: "italic",
-                textDecoration: complete && !isRoutine ? "line-through" : "none",
+                textDecoration: complete ? "line-through" : "none",
                 textDecorationThickness: "1px",
               }}>{habit.title}</h3>
               <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700, marginTop: 5, letterSpacing: "0.035em" }}>
                 {scheduleLabel(habit)}
               </div>
             </div>
-            {streak > 0 && (
-              <span title="Current streak" style={{
-                flexShrink: 0, borderRadius: 20, padding: "5px 8px", background: C.accentLight,
-                color: C.accent, fontFamily: fonts, fontSize: 11, fontWeight: 800,
-              }}>↗ {streak}</span>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+              {streak > 0 && (
+                <span title="Current streak" style={{
+                  borderRadius: 20, padding: "5px 8px", background: C.accentLight,
+                  color: C.accent, fontFamily: fonts, fontSize: 11, fontWeight: 800,
+                }}>↗ {streak}</span>
+              )}
+              {isRoutine && (
+                <button type="button" onClick={() => setExpanded(value => !value)}
+                  aria-expanded={expanded} aria-label={`${expanded ? "Hide" : "Show"} steps for ${habit.title}`}
+                  style={{
+                    width: 36, height: 36, border: "none", borderRadius: 12,
+                    background: expanded ? C.greenLight : C.cardAlt, color: expanded ? C.green : C.textMuted,
+                    cursor: "pointer", fontSize: 17, fontWeight: 800,
+                    transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s ease",
+                  }}>⌄</button>
+              )}
+            </div>
           </div>
 
-          {isRoutine && (
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 7 }}>
+          {isRoutine && expanded && (
+            <div style={{
+              marginTop: 14, display: "flex", flexDirection: "column", gap: 7,
+              animation: "fk-fadeUp 0.22s ease",
+            }}>
               {steps.map(step => (
                 <button key={step.id} type="button" disabled={disabled}
                   onClick={() => onToggleStep(step.id)} aria-pressed={step.completed}
@@ -82,9 +101,19 @@ export default function HabitCard({ habit, entry, entries, entryDate, disabled, 
           )}
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 13 }}>
-            <span style={{ color: complete ? C.green : C.textLight, fontSize: 11, fontWeight: 700 }}>
-              {isRoutine ? `${completedSteps}/${steps.length} steps` : complete ? "Complete" : "Ready when you are"}
-            </span>
+            <div style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+              <span style={{ color: complete ? C.green : C.textLight, fontSize: 11, fontWeight: 700 }}>
+                {isRoutine ? `${completedSteps}/${steps.length} steps · ${expanded ? "hide details" : "tap arrow for details"}` : complete ? "Complete" : "Ready when you are"}
+              </span>
+              {isRoutine && (
+                <div aria-hidden="true" style={{ height: 4, borderRadius: 4, background: C.borderLight, marginTop: 6, overflow: "hidden" }}>
+                  <div style={{
+                    width: `${steps.length ? (completedSteps / steps.length) * 100 : 0}%`, height: "100%",
+                    borderRadius: 4, background: complete ? C.green : C.accentSoft, transition: "width 0.25s ease",
+                  }} />
+                </div>
+              )}
+            </div>
             {habit.schedule_type === SCHEDULE_TYPES.WEEKLY && (
               <span style={{ color: progress.completed >= progress.target ? C.green : C.textMuted, fontSize: 11, fontWeight: 800 }}>
                 {progress.completed}/{progress.target} this week

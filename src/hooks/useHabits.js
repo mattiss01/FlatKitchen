@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import supabase from "../lib/supabase";
-import { HABIT_TYPES, routineSnapshot, toggleSnapshotStep } from "../lib/habits";
+import { HABIT_TYPES, routineSnapshot, setSnapshotCompletion, toggleSnapshotStep } from "../lib/habits";
 
 function sortHabits(rows) {
   return [...(rows || [])]
@@ -261,6 +261,13 @@ export default function useHabits(ownerName) {
     return saveEntry(habit, entryDate, next.completed, next.steps);
   }, [entries, saveEntry]);
 
+  const toggleRoutine = useCallback((habit, entryDate) => {
+    const current = entries.find(entry => entry.habit_id === habit.id && entry.entry_date === entryDate);
+    const snapshot = current?.step_state?.length ? current.step_state : routineSnapshot(habit);
+    const next = setSnapshotCompletion(snapshot, !current?.completed);
+    return saveEntry(habit, entryDate, next.completed, next.steps);
+  }, [entries, saveEntry]);
+
   return {
     habits: scopedHabits,
     entries: scopedEntries,
@@ -274,6 +281,7 @@ export default function useHabits(ownerName) {
     setArchived,
     moveHabit,
     toggleSimple,
+    toggleRoutine,
     toggleRoutineStep,
     refresh: fetchAll,
   };

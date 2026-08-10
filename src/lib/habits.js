@@ -145,3 +145,8 @@ export function toggleSnapshotStep(snapshot, stepId) {
   ));
   return { steps: next, completed: next.length > 0 && next.every(step => step.completed) };
 }
+
+export function setSnapshotCompletion(snapshot, completed) {
+  const steps = (snapshot || []).map(step => ({ ...step, completed }));
+  return { steps, completed: completed && steps.length > 0 };
+}

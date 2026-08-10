@@ -4,6 +4,7 @@ import {
   SCHEDULE_TYPES,
   calculateStreak,
   isHabitDue,
+  setSnapshotCompletion,
   toggleSnapshotStep,
   weekDates,
   weeklyProgress,
@@ -70,4 +71,18 @@ test("routine snapshots complete only when every step is complete", () => {
   const second = toggleSnapshotStep(first.steps, 2);
   assert.equal(second.completed, true);
   assert.equal(toggleSnapshotStep(second.steps, 1).completed, false);
+});
+
+test("routine master toggle completes and reopens every step", () => {
+  const snapshot = [
+    { id: 1, title: "Water", completed: true },
+    { id: 2, title: "Stretch", completed: false },
+  ];
+  const completed = setSnapshotCompletion(snapshot, true);
+  assert.equal(completed.completed, true);
+  assert.deepEqual(completed.steps.map(step => step.completed), [true, true]);
+
+  const reopened = setSnapshotCompletion(completed.steps, false);
+  assert.equal(reopened.completed, false);
+  assert.deepEqual(reopened.steps.map(step => step.completed), [false, false]);
 });

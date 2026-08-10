@@ -14,7 +14,7 @@ export default function HabitsTab({ ownerName, habitState }) {
   const today = dateKey(new Date());
   const {
     habits, entriesByHabit, loading, saving, error, clearError,
-    createHabit, updateHabit, setArchived, moveHabit, toggleSimple, toggleRoutineStep,
+    createHabit, updateHabit, setArchived, moveHabit, toggleSimple, toggleRoutine, toggleRoutineStep,
   } = habitState;
 
   const activeHabits = useMemo(() => habits.filter(habit => !habit.is_archived), [habits]);
@@ -174,6 +174,7 @@ export default function HabitsTab({ ownerName, habitState }) {
           <HabitCard key={habit.id} habit={habit} entry={selectedEntries.get(habit.id)}
             entries={entriesByHabit[habit.id] || []} entryDate={selectedDate} disabled={future || saving}
             onToggle={() => toggleSimple(habit, selectedDate)}
+            onToggleRoutine={() => toggleRoutine(habit, selectedDate)}
             onToggleStep={stepId => toggleRoutineStep(habit, selectedDate, stepId)} delay={index * 0.055} />
         ))
       )}
